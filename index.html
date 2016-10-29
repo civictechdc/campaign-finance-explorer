@@ -18,18 +18,12 @@
 
     <script type="text/javascript">
 
-document.addEventListener('DOMContentLoaded',function(){
-  window.onresize = function(){ kshf.handleResize(); };
-});
-
 $(document).ready( function(){
   browser = new kshf.Browser({
-    domID: "#demo_Browser",
+    domID: "#campaignExplorer",
     categoryTextWidth: 300,
     source: { 
       callback: function(){
-        var browser = this;
-
         // Example call: index.html?14D5:12D6
 
         // if no query is provided, use a sample one
@@ -41,7 +35,7 @@ $(document).ready( function(){
         if(location.search!=="") {
           campaigns = location.search.substr(1,10000).split(":");
         }
-        browser.primaryTableName = "Contributions";
+        this.primaryTableName = "Contributions";
         kshf.dt.Contributions = [];
         var contributionID = 0;
         campaigns.forEach(function(campaign){
@@ -59,7 +53,7 @@ $(document).ready( function(){
             }
           });
         });
-        browser.loadCharts();
+        this.loadCharts();
       } },
     onReady: function(){
       this.setMeasureMetric("Sum", this.summaries_by_name.Amount);
@@ -92,13 +86,17 @@ $(document).ready( function(){
       }
     }
   });
+
+  window.onresize = function(){ kshf.handleResize(); };
 });
 </script>
 <style id="kshfStyle">
 body{
-  margin: 2px;
+  margin: 0px;
+  padding: 0px;
+  overflow: hidden;
 }
-#demo_Browser{
+#campaignExplorer{
   height: 99vh;
   width: 99vw;
 }
@@ -107,7 +105,5 @@ body{
 }
 </style>
   </head>
-  <body>
-    <div id="demo_Browser"></div>
-  </body>
+  <body><div id="campaignExplorer"></div></body>
 </html>
