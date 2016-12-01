@@ -34,8 +34,13 @@ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // load google visualization library only if google scripts were included
 if(typeof google !== 'undefined'){
-  google.load('visualization', '1', {'packages': []});
+  google.charts.load('current', {packages: ['corechart']});
+  //google.load('visualization', '1', {'packages': []});
 }
+
+// Temporary: Until I build my own d3 bundle, this is not included in the main bundle
+// https://github.com/d3/d3-selection-multi Version 1.0.0. Copyright 2016 Mike Bostock.
+!function(t,n){"object"==typeof exports&&"undefined"!=typeof module?n(require("d3-selection"),require("d3-transition")):"function"==typeof define&&define.amd?define(["d3-selection","d3-transition"],n):n(t.d3,t.d3)}(this,function(t,n){"use strict";function r(n,r){return n.each(function(){var n=r.apply(this,arguments),e=t.select(this);for(var i in n)e.attr(i,n[i])})}function e(t,n){for(var r in n)t.attr(r,n[r]);return t}function i(t){return("function"==typeof t?r:e)(this,t)}function o(n,r,e){return n.each(function(){var n=r.apply(this,arguments),i=t.select(this);for(var o in n)i.style(o,n[o],e)})}function f(t,n,r){for(var e in n)t.style(e,n[e],r);return t}function u(t,n){return("function"==typeof t?o:f)(this,t,null==n?"":n)}function s(n,r){return n.each(function(){var n=r.apply(this,arguments),e=t.select(this);for(var i in n)e.property(i,n[i])})}function c(t,n){for(var r in n)t.property(r,n[r]);return t}function a(t){return("function"==typeof t?s:c)(this,t)}function p(n,r){return n.each(function(){var e=r.apply(this,arguments),i=t.select(this).transition(n);for(var o in e)i.attr(o,e[o])})}function l(t,n){for(var r in n)t.attr(r,n[r]);return t}function y(t){return("function"==typeof t?p:l)(this,t)}function h(n,r,e){return n.each(function(){var i=r.apply(this,arguments),o=t.select(this).transition(n);for(var f in i)o.style(f,i[f],e)})}function v(t,n,r){for(var e in n)t.style(e,n[e],r);return t}function d(t,n){return("function"==typeof t?h:v)(this,t,null==n?"":n)}t.selection.prototype.attrs=i,t.selection.prototype.styles=u,t.selection.prototype.properties=a,n.transition.prototype.attrs=y,n.transition.prototype.styles=d});
 
 var kshf = {
   browsers: [],
@@ -65,15 +70,22 @@ var kshf = {
       boxZoom: false,
       touchZoom: false,
       doubleClickZoom: false,
+      zoomControl: false,
+      worldcopyjump: true
       /*continuousWorld: true, crs: L.CRS.EPSG3857 */
     },
     tileConfig: { 
       attribution: '© <a href="http://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>'+
-        ' contributors &amp; <a href="http://cartodb.com/attributions" target="_blank">CartoDB</a>',
+        ' &amp; <a href="http://cartodb.com/attributions" target="_blank">CartoDB</a>',
       subdomains: 'abcd',
       maxZoom: 19,
       //noWrap: true
-    }
+    },
+    flyConfig:{ 
+      padding: [0,0], 
+      pan: {animate: true, duration: 1.2}, 
+      zoom: {animate: true} 
+    },
   },
 
   lang: {
@@ -116,7 +128,8 @@ var kshf = {
       ResizeBrowser: "Resize browser",
       RemoveRecords: "Remove record panel",
       EditFormula: "Edit formula",
-      NoData: "(no data)",
+      NoData: "(No data)",
+      ValidData: "(Valid data)",
       ZoomToFit: "Zoom to fit",
       Close: "Close",
       Help: "Help"
@@ -158,6 +171,7 @@ var kshf = {
       RemoveRecords: "Kayıtları kaldır",
       EditFormula: "Formülü değiştir",
       NoData: "(verisiz)",
+      VelidData: "(veri var)",
       ZoomToFit: "Oto-yakınlaş",
       Close: "Kapat",
       Help: "Yardim"
@@ -194,7 +208,8 @@ var kshf = {
       Or: "??",
       Not: "??",
       EditFormula: "Edit Formula",
-      NoData: "(no data)",
+      NoData: "(No data)",
+      ValidData: "(Valid data)",
       ZoomToFit: "Zoom to fit"
     },
     // translation by github@nelsonmau
@@ -231,6 +246,8 @@ var kshf = {
       Or: "O",
       Not: "No",
       EditTitle: "Modifica",
+      NoData: "(No data)",
+      ValidData: "(Valid data)",
       ResizeBrowser: "Ridimensiona il browser",
       RemoveRecords: "Rimuovi la visualizzazione dei record"
     },
@@ -284,12 +301,12 @@ var kshf = {
     },
     ignoreScrollEvents: false,
     scrollToPos_do: function(scrollDom, targetPos){
-      scrollDom = scrollDom[0][0];
+      scrollDom = scrollDom.node();
       kshf.Util.ignoreScrollEvents = true;
       // scroll to top
       var startTime = null;
       var scrollInit = scrollDom.scrollTop;
-      var easeFunc = d3.ease('cubic-in-out');
+      var easeFunc = d3.easeCubicOut;
       var scrollTime = 500;
       var animateToTop = function(timestamp){
         var progress;
@@ -331,7 +348,13 @@ var kshf = {
   loadFont: function(){
     if(this.fontLoaded===true) return;
     WebFontConfig = {
-      google: { families: [ 'Roboto:400,500,300,100,700:latin', 'Montserrat:400,700:latin' ] }
+      google: { 
+        families: [ 
+          'Roboto:400,500,300,100,700:latin', 
+          'Montserrat:400,700:latin', 
+          'Roboto+Slab:700'
+        ]
+      }
     };
     var wf = document.createElement('script');
     wf.src = ('https:' == document.location.protocol ? 'https' : 'http') +
@@ -373,11 +396,6 @@ var kshf = {
 
   /* -- */
   intersects: function(d3bound, leafletbound){
-    // d3bound: [​[left, bottom], [right, top]​]
-    // leafletBound._southWest.lat
-    // leafletBound._southWest.long
-    // leafletBound._northEast.lat
-    // leafletBound._northEast.long
     if(d3bound[0][0]>leafletbound._northEast.lng) return false;
     if(d3bound[0][1]>leafletbound._northEast.lat) return false;
     if(d3bound[1][0]<leafletbound._southWest.lng) return false;
@@ -390,7 +408,7 @@ var kshf = {
   gistLogin: false,
   getGistLogin: function(){
     if(this.githubToken===undefined) return;
-    d3.xhr('https://api.github.com/user')
+    d3.request('https://api.github.com/user')
       .header("Authorization","token "+kshf.githubToken)
       .get(function(error, data){ kshf.gistLogin = JSON.parse(data.response).login; });
   },
@@ -429,8 +447,8 @@ Tipsy.prototype = {
 
     this.jq_tipsy_inner.html(title);
     this.jq_tip.attr("class","tipsy"); // reset classname in case of dynamic gravity
-    this.jq_tip.style({top: 0, left: 0, visibility: 'hidden', display: 'block'});
-    kshf.browser.DOM.root[0][0].appendChild(this.jq_tip[0][0]);
+    this.jq_tip.styles({top: 0, left: 0, visibility: 'hidden', display: 'block'});
+    kshf.browser.DOM.root.node().appendChild(this.jq_tip.node());
 
     if(this.options.className) {
       this.jq_tip.attr("class", "tipsy "+maybeCall(this.options.className, this.jq_element));
@@ -438,8 +456,8 @@ Tipsy.prototype = {
 
     var pos = this.jq_element.getBoundingClientRect();
 
-    var actualWidth = this.jq_tip[0][0].offsetWidth,
-        actualHeight = this.jq_tip[0][0].offsetHeight,
+    var actualWidth  = this.jq_tip.node().offsetWidth,
+        actualHeight = this.jq_tip.node().offsetHeight,
         gravity = maybeCall(this.options.gravity, this.jq_element);
 
     this.tipWidth = actualWidth;
@@ -469,7 +487,7 @@ Tipsy.prototype = {
       }
     }
 
-    var browserPos = kshf.browser.DOM.root[0][0].getBoundingClientRect();
+    var browserPos = kshf.browser.DOM.root.node().getBoundingClientRect();
     tp.left = tp.left - browserPos.left;
     tp.top = tp.top - browserPos.top;
 
@@ -479,7 +497,7 @@ Tipsy.prototype = {
       .attr("class", this.jq_tip.attr("class")+' tipsy-' + gravity);
     this.jq_tipsy_arrow.attr("class", 'tipsy-arrow tipsy-arrow-' + gravity.charAt(0));
 
-    this.jq_tip.style({opacity: 0, visibility: 'visible'}).transition().duration(200).style('opacity',1);
+    this.jq_tip.styles({opacity: 0, visibility: 'visible'}).transition().duration(200).style('opacity',1);
   },
   hide: function(){
     kshf.activeTipsy = undefined;
@@ -519,6 +537,7 @@ kshf.Record = function(d, idIndex){
   // Wanted item / not filtered out
   this.isWanted = true;
 
+  // Rank order of the record
   this.recordRank = 0;
 
   // The data that's used for mapping this item, used as a cache.
@@ -528,6 +547,7 @@ kshf.Record = function(d, idIndex){
       // - If this is a paper, it can be paper type. If this is author, it can be author affiliation.
   this._valueCache = []; // caching the values this item was mapped to
 
+  // Aggregates which this record falls under
   this._aggrCache = [];
 
   this.DOM = { record: undefined };
@@ -551,30 +571,30 @@ kshf.Record.prototype = {
     this._filterCache[index] = v;
     this._filterCacheIsDirty = true;
   },
-  /** Updates isWanted state, and notifies all related filter attributes of the change */
+  /** Updates isWanted state, and notifies all related aggregates of the change */
   updateWanted: function(){
     if(!this._filterCacheIsDirty) return false;
     var me = this;
 
     var oldWanted = this.isWanted;
     this.isWanted = this._filterCache.every(function(f){ return f; });
+    this._filterCacheIsDirty = false;
 
     if(this.measure_Self && this.isWanted !== oldWanted){ // There is some change that affects computation
       var valToAdd = (this.isWanted && !oldWanted) ? this.measure_Self /*add*/ : -this.measure_Self /*remove*/;
-      var cntToAdd = valToAdd>0?1:-1;
+      var cntToAdd = this.isWanted ? 1 : -1; // more record : less record
       this._aggrCache.forEach(function(aggr){ 
         aggr._measure.Active += valToAdd;
-        if(valToAdd) aggr.recCnt.Active+=cntToAdd;
+        aggr.recCnt.Active   += cntToAdd;
       });
     }
 
-    this._filterCacheIsDirty = false;
     return this.isWanted !== oldWanted;
   },
   /** -- */
   setRecordDetails: function(value){
     this.showDetails = value;
-    if(this.DOM.record) this.DOM.record.setAttribute('details', this.showDetails);
+    if(this.DOM.record) d3.select(this.DOM.record).classed('showDetails', this.showDetails);
   },
   /** Called on mouse-over on a primary item type */
   highlightRecord: function(){
@@ -642,39 +662,31 @@ kshf.Record.prototype = {
     } else {
       this.DOM.record.setAttribute("rec_compared",this.selectCompared_str);
     }
+  },
+  initLinks: function(){
+    this.DOM.links_To = [];
+    this.DOM.links_From = [];
+    this.links_To = [];
+    this.links_From = [];
   }
 };
 
 /**
  * @constructor
  */
-kshf.Aggregate = function(){};
+kshf.Aggregate = function(summary){
+  // Which summary does this aggregate appear in?
+  this.summary = summary;
+  // Records which are mapped to this aggregate
+  this.records = [];
+  // To signal that this aggregate should not be shown, set this to false;
+  this.usedAggr = true;
+  // DOM
+  this.DOM = { aggrGlyph: undefined };
+  // Reset
+  this.resetAggregateMeasures();
+};
 kshf.Aggregate.prototype = {
-  /** -- */
-  init: function(d,idIndex){
-    // Records which are mapped to this aggregate
-    this.records = [];
-    // What this aggregate represents
-    this.data = d;
-    // Aggregates can also be defined by an index
-    this.idIndex = idIndex;
-    // Selection state
-    //  1: selected for inclusion (AND)
-    //  2: selected for inclusion (OR)
-    // -1: selected for removal (NOT query)
-    //  0: not selected
-    this.selected = 0;
-    
-    this.DOM = {
-      aggrGlyph: undefined
-    };
-
-    this.resetAggregateMeasures();
-  },
-  /** Returns unique ID of the aggregate. */
-  id: function(){
-    return this.data[this.idIndex];
-  },
   /** -- */
   resetAggregateMeasures: function(){
     this._measure = {
@@ -766,8 +778,7 @@ kshf.Aggregate.prototype = {
   },
   /** -- */
   clearCompare: function(cT){
-    d3.select(this.DOM.aggrGlyph).classed("locked",false);
-    if(this.DOM.aggrGlyph) this.DOM.aggrGlyph.removeAttribute("compare");
+    d3.select(this.DOM.aggrGlyph).classed("locked",false).attr("compare",null);
     this.compared = false;
     this.records.forEach(function(record){ record.unsetCompared(cT); });
   }, 
@@ -779,8 +790,35 @@ kshf.Aggregate.prototype = {
   clearHighlight: function(){
     this.records.forEach(function(record){ record.remForHighlight(false); });
   }, 
+};
 
-  // CATEGORICAL AGGREGATES ONLY
+/**
+ * @constructor
+ */
+kshf.Aggregate_Category = function(summary, d, idIndex){
+  kshf.Aggregate.call(this, summary);
+
+  // What this aggregate represents
+  this.data = d;
+
+  // Categories can be indexed
+  this.idIndex = idIndex;
+
+  // Selection state
+  //  1: selected for inclusion (AND)
+  //  2: selected for inclusion (OR)
+  // -1: selected for removal (NOT query)
+  //  0: not selected
+  this.selected = 0;
+};
+kshf.Aggregate_Category.prototype = Object.create(kshf.Aggregate.prototype);
+kshf.Aggregate_Category.constructor = kshf.Aggregate_Category;
+var Aggregate_Category_functions = {
+  /** Returns unique ID of the aggregate. */
+  id: function(){
+    return this.data[this.idIndex];
+  },
+
   f_selected: function(){ return this.selected!== 0; },
   f_included: function(){ return this.selected >  0; },
   is_NONE   : function(){ return this.selected=== 0; },
@@ -834,43 +872,69 @@ kshf.Aggregate.prototype = {
       this.DOM.aggrGlyph.setAttribute("cFiltered",v);
     }
   },
-};
-
-kshf.Aggregate_EmptyRecords = function(){};
-kshf.Aggregate_EmptyRecords.prototype = new kshf.Aggregate();
-var Aggregate_EmptyRecords_functions = {
-  /** -- */
-  init: function(){
-    kshf.Aggregate.prototype.init.call(this,{id: null},'id');
-    this.isVisible = true;
-    this.emptyRecordsAggregate = true;
-  }
 }
-for(var index in Aggregate_EmptyRecords_functions){
-  kshf.Aggregate_EmptyRecords.prototype[index] = Aggregate_EmptyRecords_functions[index];
+for(var index in Aggregate_Category_functions){
+  kshf.Aggregate_Category.prototype[index] = Aggregate_Category_functions[index];
 }
 
 /**
  * @constructor
  */
-kshf.BreadCrumb = function(browser, selectType){
+kshf.Aggregate_Interval = function(summary, minV, maxV){
+  kshf.Aggregate.call(this, summary);
+  this.minV = minV;
+  this.maxV = maxV;
+};
+kshf.Aggregate_Interval.prototype = Object.create(kshf.Aggregate.prototype);
+kshf.Aggregate_Interval.constructor = kshf.Aggregate_Interval;
+
+/**
+ * @constructor
+ */
+kshf.Aggregate_Set = function(summary, set_1, set_2){
+  kshf.Aggregate.call(this, summary);
+  this.set_1 = set_1;
+  this.set_2 = set_2;
+};
+kshf.Aggregate_Set.prototype = Object.create(kshf.Aggregate.prototype);
+kshf.Aggregate_Set.constructor = kshf.Aggregate_Set;
+
+/**
+ * @constructor
+ */
+kshf.Aggregate_EmptyRecords = function(summary){
+  kshf.Aggregate_Category.call(this, summary, {id:null}, 'id');
+  this.isVisible = true;
+  this.emptyRecordsAggregate = true;
+};
+kshf.Aggregate_EmptyRecords.prototype = Object.create(kshf.Aggregate_Category.prototype);
+
+/**
+ * @constructor
+ */
+kshf.BreadCrumb = function(browser, selectType, _filter){
   this.browser = browser;
   this.DOM = null;
   this.selectType = selectType;
+  this.filter = _filter;
 };
 kshf.BreadCrumb.prototype = {
   isCompareSelection: function(){
     return this.selectType.substr(0,7)==="Compare";
   },
+  /** -- */
   showCrumb: function(summary){
+    var _pre = this.browser.getHeight_PanelBasic();
+    var _pre_ = parseInt(this.browser.DOM.panelsTop.style('margin-top'));
     if(this.DOM===null) {
-      this._insertDOM_crumb(summary);
+      this._insertDOM_crumb();
     }
-    this.DOM.select(".crumbHeader").html(summary.summaryName);
     var details;
     if(this.selectType==="Filter"){
-      details = summary.summaryFilter.filterView_Detail.call(summary.summaryFilter);
+      this.DOM.select(".crumbHeader").html(this.filter.getTitle());
+      details = this.filter.filterView_Detail();
     } else {
+      this.DOM.select(".crumbHeader").html(summary.summaryName);
       var selectedAggr = this.browser.selectedAggr[this.selectType];
       if(selectedAggr instanceof kshf.Aggregate_EmptyRecords){
         details = kshf.lang.cur.NoData;
@@ -882,19 +946,38 @@ kshf.BreadCrumb.prototype = {
     }
     details = "" + details; // convert to string, in case the return value is a number...
     if(details) this.DOM.select(".crumbDetails").html(details.replace(/<br>/gi," "));
+
+    if(this.selectType==="Highlight"){
+      var _post = this.browser.getHeight_PanelBasic();
+      this.browser.DOM.panelsTop.style('margin-top',(_pre_+_pre-_post)+"px");
+    } else {
+      this.browser.DOM.panelsTop.style('margin-top',"0px");
+    }
   },
-  removeCrumb: function(){
+  /** -- */
+  removeCrumb: function(noAnim){
     if(this.DOM === null) return;
     var me=this;
-    this.DOM.attr("ready",false);
-    setTimeout(function(){ 
-      if(me.DOM===null) return;
-      me.DOM[0][0].parentNode.removeChild(me.DOM[0][0]);
-      me.DOM = null;
-    }, 350);
+    if(noAnim){
+      this.DOM.remove();
+    } else {
+      var _pre = this.browser.getHeight_PanelBasic();
+      var _pre_ = parseInt(me.browser.DOM.panelsTop.style('margin-top'));
+      this.DOM.style("opacity",0)
+        .transition().delay(300).remove()
+        .on("end",function(){ 
+          var _post = me.browser.getHeight_PanelBasic();
+          var v = _pre_+_pre-_post;
+          if(me.selectType!=="Highlight") v=0;
+          me.browser.DOM.panelsTop.style('margin-top',v+"px");
+        });
+    }
+    this.DOM = null;
   },
-  _insertDOM_crumb: function(summary){
+  /** -- */
+  _insertDOM_crumb: function(){
     var me=this;
+
     this.DOM = this.browser.DOM.breadcrumbs.append("span")
       .attr("class","breadCrumb crumbMode_"+this.selectType)
       .each(function(){
@@ -908,7 +991,7 @@ kshf.BreadCrumb.prototype = {
             switch(me.selectType){
               case "Filter":    return kshf.lang.cur.RemoveFilter;
               case "Highlight": return "Remove Highlight";
-              default:          return kshf.lang.cur.Unlock; // Compare
+              default:          return kshf.lang.cur.Unlock; // Compare_A, Compare_B, Compare_C
             }
           }
         });
@@ -919,17 +1002,17 @@ kshf.BreadCrumb.prototype = {
       })
       .on("mouseleave",function(){
         this.tipsy.hide();
-        if(me.isCompareSelection()) me.browser.refreshMeasureLabels();
+        if(me.isCompareSelection()) me.browser.refreshMeasureLabels("Active");
       })
       .on("click",function(){
         this.tipsy.hide();
         if(me.selectType==="Filter") {
-          summary.summaryFilter.clearFilter();
+          me.filter.clearFilter();
         } else if(me.selectType==="Highlight") {
           me.browser.clearSelect_Highlight(true);
         } else {
-          me.browser.clearSelect_Compare(me.selectType.substr(8), true);
-          me.browser.refreshMeasureLabels();
+          me.browser.clearSelect_Compare(me.selectType.substr(8));
+          me.browser.refreshMeasureLabels("Active");
         }
       });
 
@@ -937,12 +1020,11 @@ kshf.BreadCrumb.prototype = {
     var y = this.DOM.append("span").attr("class","crumbText");
     y.append("span").attr("class","crumbHeader");
     y.append("span").attr("class","crumbDetails");
-    // animate appear
-    window.getComputedStyle(this.DOM[0][0]).opacity; // force redraw
-    this.DOM.attr("ready",true);
+
+    this.DOM.style("opacity",0).style("display","inline-block").transition().style("opacity",1);
 
     // Push the save button to the end of list
-    var dom = this.browser.DOM.saveSelection[0][0];
+    var dom = this.browser.DOM.saveSelection.node();
     dom.parentNode.appendChild(dom);
   },
 };
@@ -950,25 +1032,23 @@ kshf.BreadCrumb.prototype = {
 /**
  * @constructor
  */
-kshf.Filter = function(filterOptions){
-  this.isFiltered = false;
-
-  this.browser = filterOptions.browser;
-  this.summary = filterOptions.summary;
-
-  this.onClear = filterOptions.onClear;
-  this.onFilter = filterOptions.onFilter;
-  this.filterView_Detail = filterOptions.filterView_Detail; // must be a function
+kshf.Filter = function(_browser){
+  this.browser = _browser;
 
   this.filterID = this.browser.filterCount++;
 
-  this.browser.records.forEach(function(record){ record.setFilterCache(this.filterID,true); },this);
+  this.isFiltered = false;
   this.how = "All";
-  this.filterCrumb = new kshf.BreadCrumb(this.browser,"Filter");
+
+  this.browser.records.forEach(function(record){ record.setFilterCache(this.filterID,true); },this);
+
+  this.filterCrumb = new kshf.BreadCrumb(this.browser,"Filter", this);
 };
 kshf.Filter.prototype = {
   addFilter: function(){
     this.isFiltered = true;
+
+    this.browser.clearSelect_Highlight(true);
 
     if(this.onFilter) this.onFilter.call(this);
 
@@ -984,11 +1064,10 @@ kshf.Filter.prototype = {
       stateChanged = record.updateWanted() || stateChanged;
     },this);
 
-    this.filterCrumb.showCrumb(this.summary);
+    this.filterCrumb.showCrumb();
 
     this.browser.update_Records_Wanted_Count();
     this.browser.refresh_filterClearAll();
-    this.browser.clearSelect_Highlight(true);
     if(stateChanged) this.browser.updateAfterFilter();
   },
   /** -- */
@@ -1019,132 +1098,504 @@ kshf.Filter.prototype = {
   },
   /** -- */
   getRichText: function(){
-    return "<b>"+this.summary.summaryName+"</b>: "+this.filterView_Detail.call(this)+" ";
+    return "<b>"+this.getTitle()+"</b>: "+this.filterView_Detail()+" ";
   }
 };
 
-/** -- */
-kshf.RecordDisplay = function(kshf_, config){
-    var me = this;
-    this.browser = kshf_;
-    this.DOM = {};
-
-    this.config = config;
-
-    this.config.sortColWidth = this.config.sortColWidth || 50; // default is 50 px
-
-    this.autoExpandMore = true;
-    if(config.autoExpandMore===false) this.autoExpandMore = false;
-
-    this.maxVisibleItems_Default = config.maxVisibleItems_Default || kshf.maxVisibleItems_Default;
-    this.maxVisibleItems = this.maxVisibleItems_Default; // This is the dynamic property
-
-    this.showRank = config.showRank || false;
-    this.mapMouseControl = "pan";
-
-    this.displayType   = config.displayType   || 'list'; // 'grid', 'list', 'map', 'nodelink'
-    if(config.geo) this.displayType = 'map';
-    if(config.linkBy) {
-      this.displayType = 'nodelink';
-      if(!Array.isArray(config.linkBy)) config.linkBy = [config.linkBy];
-    } else {
-      config.linkBy = [];
-    }
-
-    this.detailsToggle = config.detailsToggle || 'zoom'; // 'one', 'zoom', 'off' (any other string counts as off)
-
-    this.textSearchSummary = null;
-    this.recordViewSummary = null;
-
-    /***********
-     * SORTING OPTIONS
-     *************************************************************************/
-    config.sortingOpts = config.sortBy; // depracated option (sortingOpts)
-
-    this.sortingOpts = config.sortingOpts || [ {title:this.browser.records[0].idIndex} ]; // Sort by id by default
-    if(!Array.isArray(this.sortingOpts)) this.sortingOpts = [this.sortingOpts];
-
-    this.prepSortingOpts();
-    var firstSortOpt = this.sortingOpts[0];
-    // Add all interval summaries as sorting options
-    this.browser.summaries.forEach(function(summary){
-      if(summary.panel===undefined) return; // Needs to be within view
-      if(summary.type!=="interval") return; // Needs to be interval (numeric)
-      this.addSortingOption(summary);
-    },this);
-    this.prepSortingOpts();
-    this.alphabetizeSortingOptions();
-
-    this.setSortingOpt_Active(firstSortOpt || this.sortingOpts[0]);
-
-    this.DOM.root = this.browser.DOM.root.select(".recordDisplay")
-      .attr('detailsToggle',this.detailsToggle)
-      .attr('showRank',this.showRank)
-      .attr('mapMouseControl',this.mapMouseControl)
-      .attr('hasRecordView',false);
-
-    var zone = this.DOM.root.append("div").attr("class","dropZone dropZone_recordView")
-        .on("mouseenter",function(){ this.setAttribute("readyToDrop",true);  })
-        .on("mouseleave",function(){ this.setAttribute("readyToDrop",false); })
-        .on("mouseup",function(event){
-          var movedSummary = me.browser.movedSummary;
-          if(movedSummary===null || movedSummary===undefined) return;
-
-          movedSummary.refreshNuggetDisplay();
-          me.setRecordViewSummary(movedSummary);
-
-          if(me.textSearchSummary===null) me.setTextSearchSummary(movedSummary);
-
-          me.browser.updateLayout();
-        });
-    zone.append("div").attr("class","dropIcon fa fa-list-ul");
-    
-    this.DOM.recordDisplayHeader = this.DOM.root.append("div").attr("class","recordDisplayHeader");
-    this.initDOM_RecordViewHeader();
-
-    this.DOM.recordDisplayWrapper = this.DOM.root.append("div").attr("class","recordDisplayWrapper");
-
-    this.viewAs(this.displayType);
-
-    if(config.recordView!==undefined){
-      if(typeof(config.recordView)==="string"){
-        // it may be a function definition if so, evaluate
-        if(config.recordView.substr(0,8)==="function"){
-          // Evaluate string to a function!!
-          eval("\"use strict\"; config.recordView = "+config.recordView);
-        }
-      }
-
-      this.setRecordViewSummary(
-        (typeof config.recordView === 'string') ?
-          this.browser.summaries_by_name[config.recordView] :
-          // function
-          this.browser.createSummary('Records',config.recordView,'categorical')
-      );
-    }
-
-    if(config.textSearch){
-      // Find the summary. If it is not there, create it
-      if(typeof(config.textSearch)==="string"){
-        this.setTextSearchSummary( this.browser.summaries_by_name[config.textSearch] );
-      } else {
-        var name = config.textSearch.name;
-        var value = config.textSearch.value;
-        if(name!==undefined){
-          var summary = this.browser.summaries_by_name[config.textSearch];
-          if(!summary){
-            if(typeof(value)==="function"){
-              summary = browser.createSummary(name,value,'categorical');
-            } else if(typeof(value)==="string"){
-              summary = browser.changeSummaryName(value,name);
-            };
-          }
-        }
-        this.setTextSearchSummary(summary);
-      }
-    }
+/**
+ * @constructor
+ */
+kshf.Filter_Categorical = function(_browser,_summary){
+  kshf.Filter.call(this,_browser);
+  this.summary = _summary;
+  this.selected_AND = [];
+  this.selected_OR = [];
+  this.selected_NOT = [];
 };
+kshf.Filter_Categorical.prototype = Object.create(kshf.Filter.prototype);
+kshf.Filter_Categorical.constructor = kshf.Filter_Categorical;
+var Filter_Categorical_functions = {
+  getTitle: function(){
+    return this.summary.summaryName;
+  },
+  selectedCount_Total: function(){
+    return this.selected_AND.length + this.selected_OR.length + this.selected_NOT.length;
+  },
+  selected_Any: function(){
+    return this.selected_AND.length>0 || this.selected_OR.length>0 || this.selected_NOT.length>0;
+  },
+  selected_All_clear: function(){
+    kshf.Util.clearArray(this.selected_AND);
+    kshf.Util.clearArray(this.selected_OR);
+    kshf.Util.clearArray(this.selected_NOT);
+  },
+  onClear: function(){
+    var me=this.summary;
+    me.missingValueAggr.filtered = false;
+    me.clearCatTextSearch();
+    me.unselectAllCategories();
+    me._update_Selected();
+  },
+  onFilter: function(){
+    var me=this.summary;
+    // at least one category is selected in some modality (and/ or/ not)
+    me._update_Selected();
 
+    var nullOut = me.missingValueAggr.filtered==="out";
+    var nullIn = me.missingValueAggr.filtered==="in";
+
+    me.records.forEach(function(record){
+      var recordVal_s = record._valueCache[me.summaryID];
+      if(nullIn){
+        record.setFilterCache(this.filterID, recordVal_s===null);
+        return;
+      }
+      if(recordVal_s===null){
+        if(nullOut){
+          record.setFilterCache(this.filterID, false);
+          return;
+        }
+        // survives if AND and OR is not selected
+        record.setFilterCache(this.filterID, this.selected_AND.length===0 && this.selected_OR.length===0 );
+        return;
+      }
+
+      // Check NOT selections - If any mapped record is NOT, return false
+      // Note: no other filtering depends on NOT state.
+      // This is for ,multi-level filtering using not query
+/*            if(this.selected_NOT.length>0){
+          if(!recordVal_s.every(function(record){
+              return !record.is_NOT() && record.isWanted;
+          })){
+              record.setFilterCache(this.filterID,false); return;
+          }
+      }*/
+
+      function getAggr(v){ return me.catTable_id[v]; };
+
+      // If any of the record values are selected with NOT, the record will be removed
+      if(this.selected_NOT.length>0){
+        if(!recordVal_s.every(function(v){ return !getAggr(v).is_NOT(); })){
+          record.setFilterCache(this.filterID,false); return;
+        }
+      }
+      // All AND selections must be among the record values
+      if(this.selected_AND.length>0){
+        var t=0; // Compute the number of record values selected with AND.
+        recordVal_s.forEach(function(v){ if(getAggr(v).is_AND()) t++; })
+        if(t!==this.selected_AND.length){
+          record.setFilterCache(this.filterID,false); return;
+        }
+      }
+      // One of the OR selections must be among the record values
+      if(this.selected_OR.length>0){
+        record.setFilterCache(this.filterID, recordVal_s.some(function(v){return (getAggr(v).is_OR());}) );
+        return;
+      }
+      // only NOT selection
+      record.setFilterCache(this.filterID,true);
+    }, this);
+  },
+  filterView_Detail: function(){
+    var me=this.summary;
+    if(me.missingValueAggr.filtered==="in") return kshf.lang.cur.NoData;
+    // 'this' is the Filter
+    // go over all records and prepare the list
+    var selectedItemsText="";
+
+    if(me.missingValueAggr.filtered==="out") selectedItemsText = kshf.lang.cur.ValidData;
+
+    var catTooltip = me.catTooltip;
+
+    var totalSelectionCount = this.selectedCount_Total();
+
+    var query_and = " <span class='AndOrNot AndOrNot_And'>"+kshf.lang.cur.And+"</span> ";
+    var query_or = " <span class='AndOrNot AndOrNot_Or'>"+kshf.lang.cur.Or+"</span> ";
+    var query_not = " <span class='AndOrNot AndOrNot_Not'>"+kshf.lang.cur.Not+"</span> ";
+
+    if(totalSelectionCount>4){
+      selectedItemsText = "<b>"+totalSelectionCount+"</b> selected";
+      // Note: Using selected because selections can include not, or,and etc (a variety of things)
+    } else {
+      var selectedItemsCount=0;
+
+      // OR selections
+      if(this.selected_OR.length>0){
+        var useBracket_or = this.selected_AND.length>0 || this.selected_NOT.length>0;
+        if(useBracket_or) selectedItemsText+="[";
+        // X or Y or ....
+        this.selected_OR.forEach(function(category,i){
+          selectedItemsText+=((i!==0 || selectedItemsCount>0)?query_or:"")+"<span class='attribName'>"
+              +me.catLabel_Func.call(category.data)+"</span>";
+          selectedItemsCount++;
+        });
+        if(useBracket_or) selectedItemsText+="]";
+      }
+      // AND selections
+      this.selected_AND.forEach(function(category,i){
+        selectedItemsText+=((selectedItemsText!=="")?query_and:"")
+            +"<span class='attribName'>"+me.catLabel_Func.call(category.data)+"</span>";
+        selectedItemsCount++;
+      });
+      // NOT selections
+      this.selected_NOT.forEach(function(category,i){
+        selectedItemsText+=query_not+"<span class='attribName'>"+me.catLabel_Func.call(category.data)+"</span>";
+        selectedItemsCount++;
+      });
+    }
+    return selectedItemsText;
+  }
+};
+for(var index in Filter_Categorical_functions){
+  kshf.Filter_Categorical.prototype[index] = Filter_Categorical_functions[index];
+}
+
+/**
+ * @constructor
+ */
+kshf.Filter_Interval = function(_browser,_summary){
+  kshf.Filter.call(this,_browser);
+  this.summary = _summary;
+};
+kshf.Filter_Interval.prototype = Object.create(kshf.Filter.prototype);
+kshf.Filter_Interval.constructor = kshf.Filter_Interval;
+var Filter_Interval_functions = {
+  getTitle: function(){
+    return this.summary.summaryName;
+  },
+  onClear: function(){
+    var me=this.summary;
+    me.missingValueAggr.filtered = false;
+    if(this.filteredBin){
+      this.filteredBin = undefined;
+    }
+    if(me.DOM.root) me.DOM.root.attr("filtered",null);
+    if(me.zoomed) me.setZoomed(false);
+    me.resetFilterRangeToTotal();
+    me.refreshIntervalSlider();
+    if(me.DOM.missingValueAggr) me.DOM.missingValueAggr.classed("filtered",false);
+    if(me.encodesRecordsBy==='scatter' || me.encodesRecordsBy==='sort'){
+      me.browser.recordDisplay.refreshQueryBox_Filter();
+    }
+  },
+  onFilter: function(){
+    var me=this.summary;
+    if(me.DOM.root) me.DOM.root.attr("filtered",true);
+    var valueID = me.summaryID;
+    if(me.missingValueAggr.filtered==="in"){
+      me.records.forEach(function(record){
+        record.setFilterCache(this.filterID, record._valueCache[valueID]===null);
+      },this);
+      return;
+    }
+    if(me.missingValueAggr.filtered==="out"){
+      me.records.forEach(function(record){
+        record.setFilterCache(this.filterID, record._valueCache[valueID]!==null);
+      },this);
+      return;
+    }
+
+    var i_min = this.active.min;
+    var i_max = this.active.max;
+
+    me.stepRange = false;
+
+    if(me.stepTicks){
+      if(me.scaleType==='time'){
+        // TODO
+      } else {
+        if(i_min+1===i_max) me.stepRange = true;
+      }
+    }
+
+    var isFilteredCb;
+    if(me.isFiltered_min() && me.isFiltered_max()){
+      isFilteredCb = function(v){ return v>=i_min && v<i_max; };
+    } else if(me.isFiltered_min()){
+      isFilteredCb = function(v){ return v>=i_min; };
+    } else {// me.isFiltered_max()
+      isFilteredCb = function(v){ return v<i_max; };
+    }
+
+    // TODO: Optimize: Check if the interval scale is extending/shrinking or completely updated...
+    me.records.forEach(function(record){
+      var v = record._valueCache[valueID];
+      record.setFilterCache(this.filterID, (v!==null)?isFilteredCb(v):false);
+    },this);
+
+    var sign = "plus";
+    if(me.stepTicks) {
+      if(me.scaleType==="time"){
+        if(me.timeTyped.maxDateRes()===me.timeTyped.activeRes.type){
+          sign = me.zoomed ? "minus" : "";
+        } else {
+          sign = "plus";
+        }
+      } else {
+        sign = me.zoomed ? "minus" : "";
+      }
+    }
+
+    if(me.DOM.zoomControl) me.DOM.zoomControl.attr("sign", sign);
+
+    me.refreshIntervalSlider();
+
+    if(me.encodesRecordsBy==='scatter' || me.encodesRecordsBy==='sort'){
+      me.browser.recordDisplay.refreshQueryBox_Filter();
+    }
+  },
+  filterView_Detail: function(){
+    var me=this.summary;
+    if(me.missingValueAggr.filtered==="in") return kshf.lang.cur.NoData;
+    if(me.missingValueAggr.filtered==="out") return kshf.lang.cur.ValidData;
+    return me.printAggrSelection();
+  },
+};
+for(var index in Filter_Interval_functions){
+  kshf.Filter_Interval.prototype[index] = Filter_Interval_functions[index];
+}
+
+/**
+ * @constructor
+ */
+kshf.Filter_Text = function(_browser, _recordDisplay){
+  kshf.Filter.call(this,_browser);
+  this.multiMode = 'and';
+  this.recordDisplay = _recordDisplay;
+  this.queryString = null; // This is the text query string, populated by user input
+};
+kshf.Filter_Text.prototype = Object.create(kshf.Filter.prototype);
+kshf.Filter_Text.constructor = kshf.Filter_Text;
+var Filter_Text_functions = {
+  getTitle: function(){
+    return this.recordDisplay.textSearchSummary.summaryName;
+  },
+  onClear: function(){
+    this.recordDisplay.DOM.recordTextSearch.select(".clearSearchText").style('display','none');
+    this.recordDisplay.DOM.recordTextSearch.selectAll(".textSearchMode").style("display","none"); 
+    this.recordDisplay.DOM.recordTextSearch.select("input").node().value = "";
+  },
+  filterView_Detail: function(){
+    return "*"+this.queryString+"*";
+  },
+  setQueryString: function(v){
+    this.queryString = v.toLowerCase();
+    // convert string to query pieces
+    this.filterQuery = [];
+    if(this.queryString!=="") {
+      // split the input by " character
+      this.queryString.split('"').forEach(function(block,i){
+        if(i%2===0) {
+          block.split(/\s+/).forEach(function(q){ this.filterQuery.push(q)},this);
+        } else {
+          this.filterQuery.push(block);
+        }
+      },this);
+      // Remove the empty strings
+      this.filterQuery = this.filterQuery.filter(function(v){ return v!==""});
+    }
+  },
+  onFilter: function(){
+    this.recordDisplay.DOM.recordTextSearch
+      .select(".clearSearchText").style('display','inline-block');
+    this.recordDisplay.DOM.recordTextSearch
+      .selectAll(".textSearchMode").style("display",this.filterQuery.length>1?"inline-block":"none"); 
+
+    // go over all the records in the list, search each keyword separately
+    // If some search matches, return true (any function)
+    var summaryID = this.recordDisplay.textSearchSummary.summaryID;
+    this.browser.records.forEach(function(record){
+      var v = record._valueCache[summaryID];
+      var f = false;
+      if(v) {
+        v = (""+v).toLowerCase();
+        if(this.multiMode==='or') {
+          f = !this.filterQuery.every(function(v_i){ return v.indexOf(v_i)===-1; });
+        } else if(this.multiMode==='and') {
+          f =  this.filterQuery.every(function(v_i){ return v.indexOf(v_i)!==-1; });
+        }
+      }
+      record.setFilterCache(this.filterID,f);
+    },this);
+  }
+};
+for(var index in Filter_Text_functions){
+  kshf.Filter_Text.prototype[index] = Filter_Text_functions[index];
+}
+
+/**
+ * @constructor
+ */
+kshf.Filter_Spatial = function(_browser, _recordDisplay){
+  kshf.Filter.call(this,_browser);
+  this.recordDisplay = _recordDisplay;
+};
+kshf.Filter_Spatial.prototype = Object.create(kshf.Filter.prototype);
+kshf.Filter_Spatial.constructor = kshf.Filter_Spatial;
+var Filter_Spatial_functions = {
+  getTitle: function(){
+    return "Spatial";
+  },
+  onClear: function(){
+    this.recordDisplay.DOM.root.select(".spatialQueryBox_Filter").attr("active",null);
+  },
+  filterView_Detail: function(){
+    return "<i class='fa fa-square-o'></i> (Area)";
+  },
+  onFilter: function(){
+    this.recordDisplay.DOM.root.select(".spatialQueryBox_Filter").attr("active",true);
+    this.browser.records.forEach(function(record){
+      if(record._geoBound_ === undefined) {
+        record.setFilterCache(this.filterID, false);
+        return;
+      }
+      record.setFilterCache(this.filterID, kshf.intersects(record._geoBound_, this.bounds));
+    },this);
+  }
+};
+for(var index in Filter_Spatial_functions){
+  kshf.Filter_Spatial.prototype[index] = Filter_Spatial_functions[index];
+}
+
+
+/** -- */
+kshf.RecordDisplay = function(browser, config){
+  var me = this;
+  this.browser = browser;
+  this.DOM = {};
+
+  this.config = config;
+
+  this.sortColWidth = this.config.sortColWidth || 50; // default is 50 px
+
+  // this is the default behavior. No demo un-set's this. Keeping for future reference.
+  this.autoExpandMore = true;
+  this.collapsed = false;
+
+  this.maxVisibleItems_Default = config.maxVisibleItems_Default || kshf.maxVisibleItems_Default;
+  this.maxVisibleItems = this.maxVisibleItems_Default; // This is the dynamic property
+
+  this.showRank = config.showRank || false;
+  this.visMouseMode = "pan";
+
+  this.viewRecAs = 'list'; // Default. Options: 'grid', 'list', 'map', 'nodelink'
+
+  this.linkBy = config.linkBy || [];
+  if(!Array.isArray(this.linkBy)) this.linkBy = [this.linkBy];
+
+  // implicitly set record view
+  if(config.geo) this.viewRecAs = 'map';
+  if(config.linkBy) this.viewRecAs = 'nodelink';
+  // explicit setting by API
+  if(config.displayType) this.viewRecAs = config.displayType;
+
+  this.detailsToggle = config.detailsToggle || 'zoom'; // 'one', 'zoom', 'off' (any other string counts as off)
+
+  this.textSearchSummary = null;
+  this.recordViewSummary = null;
+
+  /***********
+   * SORTING OPTIONS
+   *************************************************************************/
+  config.sortingOpts = config.sortBy; // depracated option (sortingOpts)
+
+  this.sortingOpts = config.sortingOpts || [ {title:this.browser.records[0].idIndex} ]; // Sort by id by default
+  if(!Array.isArray(this.sortingOpts)) this.sortingOpts = [this.sortingOpts];
+
+  this.prepSortingOpts();
+  var firstSortOpt = this.sortingOpts[0];
+  // Add all interval summaries as sorting options
+  this.browser.summaries.forEach(function(summary){
+    if(! (summary instanceof kshf.Summary_Interval) ) return;
+    if(summary.panel===undefined) return; // Needs to be within view
+    this.addSortingOption(summary);
+  },this);
+  this.prepSortingOpts();
+  this.alphabetizeSortingOptions();
+
+  if(this.sortingOpts.length>0){
+    this.setSortingOpt_Active(firstSortOpt || this.sortingOpts[0]);
+  }
+
+  this.DOM.root = this.browser.DOM.root.select(".recordDisplay")
+    .attrs({
+      detailsToggle : this.detailsToggle,
+      showRank      : this.showRank,
+      visMouseMode  : this.visMouseMode,
+    });
+
+  this.DOM.root.append("div").attr("class","dropZone dropZone_recordView")
+    .on("mouseenter",function(){ this.setAttribute("readyToDrop",true);  })
+    .on("mouseleave",function(){ this.setAttribute("readyToDrop",false); })
+    .on("mouseup",function(event){
+      var movedSummary = me.browser.movedSummary;
+      if(movedSummary===null || movedSummary===undefined) return;
+
+      movedSummary.refreshThumbDisplay();
+      me.setRecordViewSummary(movedSummary);
+
+      if(me.textSearchSummary===null) me.setTextSearchSummary(movedSummary);
+
+      me.browser.updateLayout();
+    })
+    .append("div").attr("class","dropIcon fa fa-list-ul");
+  
+  this.initDOM_RecordDisplayHeader();
+
+  this.DOM.recordDisplayWrapper = this.DOM.root.append("div").attr("class","recordDisplayWrapper");
+
+  if(config.recordView!==undefined){
+    if(typeof(config.recordView)==="string"){
+      // it may be a function definition if so, evaluate
+      if(config.recordView.substr(0,8)==="function"){
+        // Evaluate string to a function!!
+        eval("\"use strict\"; config.recordView = "+config.recordView);
+      }
+    }
+
+    this.setRecordViewSummary(
+      (typeof config.recordView === 'string') ?
+        this.browser.summaries_by_name[config.recordView]
+        :
+        this.browser.createSummary('_Records',config.recordView,'categorical')
+    );
+  }
+
+  if(config.recordView_Brief!==undefined){
+    if(typeof(config.recordView_Brief)==="string"){
+      if(config.recordView_Brief.substr(0,8)==="function"){
+        eval("\"use strict\"; config.recordView_Brief = "+config.recordView_Brief);
+      }
+    }
+    this.setRecordViewBriefSummary(
+      (typeof config.recordView_Brief === 'string') ?
+        this.browser.summaries_by_name[config.recordView_Brief]
+        :
+        this.browser.createSummary('_Records_Brief',config.recordView_Brief,'categorical')
+    );
+  }
+
+  if(config.textSearch){
+    // Find the summary. If it is not there, create it
+    if(typeof(config.textSearch)==="string"){
+      this.setTextSearchSummary( this.browser.summaries_by_name[config.textSearch] );
+    } else {
+      var name = config.textSearch.name;
+      var value = config.textSearch.value;
+      if(name!==undefined){
+        var summary = this.browser.summaries_by_name[config.textSearch];
+        if(!summary){
+          if(typeof(value)==="function"){
+            summary = browser.createSummary(name,value,'categorical');
+          } else if(typeof(value)==="string"){
+            summary = browser.changeSummaryName(value,name);
+          };
+        }
+      }
+      this.setTextSearchSummary(summary);
+    }
+  }
+};
 kshf.RecordDisplay.prototype = {
     /** -- */
     setHeight: function(v){
@@ -1152,40 +1603,49 @@ kshf.RecordDisplay.prototype = {
       var me=this;
       this.curHeight = v;
       this.DOM.recordDisplayWrapper.style("height",v+"px");
-      if(this.displayType==='map'){
-        setTimeout(function(){ 
-          me.leafletRecordMap.invalidateSize();
-        }, 1000);
+      if(this.viewRecAs==='map'){
+        setTimeout(function(){ me.leafletRecordMap.invalidateSize(); }, 1000);
+      }
+      if(this.viewRecAs==='scatter'){
+        this.refreshScatterVis(true);
       }
     },
     /** -- */
-    refreshWidth: function(widthMiddlePanel){
-      this.curWidth = widthMiddlePanel;
-      if(this.displayType==='map'){
-        this.leafletRecordMap.invalidateSize();
+    setWidth: function(v){
+      if(this.recordViewSummary===null) return;
+      var me=this;
+      this.curWidth = v;
+      if(this.viewRecAs==='map'){
+        setTimeout(function(){ me.leafletRecordMap.invalidateSize(); }, 1000);
+      }
+      if(this.viewRecAs==='scatter'){
+        this.refreshScatterVis(true);
       }
     },
-    /** -- */
+    /** Encode by color or by sorting */
     getRecordEncoding: function(){
-      return (this.displayType==='map' || this.displayType==='nodelink') ? "color" : "sort";
+      if(this.viewRecAs==='map' || this.viewRecAs==='nodelink') return "color";
+      if(this.viewRecAs==='scatter') return "scatter";
+      return "sort";
     },
     /** -- */
-    map_refreshColorScaleBins: function(){
-      var me = this;
+    recMap_refreshColorScaleBins: function(){
+      var invertColorScale = false;
+      if(this.sortingOpt_Active) invertColorScale = this.sortingOpt_Active.invertColorScale;
+      var mapColorTheme    = this.browser.mapColorTheme;
       this.DOM.recordColorScaleBins
         .style("background-color", function(d){
-          if(me.sortingOpt_Active.invertColorScale) d = 8-d;
-          return kshf.colorScale[me.browser.mapColorTheme][d];
+          return kshf.colorScale[mapColorTheme][ invertColorScale ? (8-d) : d];
         });
     },
     /** --  */
-    map_projectRecords: function(){
+    recMap_projectRecords: function(){
       var me = this;
       this.DOM.kshfRecords.attr("d", function(record){ return me.recordGeoPath(record._geoFeat_); });
     },
     /** -- */
-    map_zoomToActive: function(){
-      // Insert the bounds for each record path into the bs
+    recMap_zoomToActive: function(){
+      // Insert the bounds for each record path
       var bs = [];
       this.browser.records.forEach(function(record){
         if(!record.isWanted) return;
@@ -1202,18 +1662,260 @@ kshf.RecordDisplay.prototype = {
       var bounds = new L.latLngBounds(bs);
       if(!this.browser.finalized){ // First time: just fit bounds
         this.leafletRecordMap.fitBounds( bounds );
-        return;
+      } else {
+        this.leafletRecordMap.flyToBounds( bounds, kshf.map.flyConfig );
       }
-      this.leafletRecordMap.flyToBounds(
-        bounds,
-        { padding: [0,0], 
-          pan: {animate: true, duration: 1.2}, 
-          zoom: {animate: true} 
-        }
-        );
     },
     /** -- */
-    initRecordGeoFeat: function(){
+    initDOM_RecordDisplayHeader: function(){
+      var me=this;
+
+      this.DOM.recordDisplayHeader = this.DOM.root.append("div").attr("class","recordDisplayHeader");
+
+      this.DOM.recordColorScaleBins =  this.DOM.recordDisplayHeader.append("div").attr("class","recordColorScale")
+        .each(function(){ this.tipsy = new Tipsy(this, {gravity: 'w', title: "Change color scale"}); })
+        .on("mouseover",function(){ this.tipsy.show(); })
+        .on("mouseout" ,function(){ this.tipsy.hide(); })
+        .on("click"    ,function(){
+          me.browser.mapColorTheme = (me.browser.mapColorTheme==="converge") ? "diverge" : "converge";
+          me.refreshRecordColors();
+          me.recMap_refreshColorScaleBins();
+          me.sortingOpt_Active.map_refreshColorScale();
+        })
+        .selectAll(".recordColorScaleBin").data([0,1,2,3,4,5,6,7,8])
+          .enter().append("div").attr("class","recordColorScaleBin");
+      
+      this.recMap_refreshColorScaleBins();
+
+      this.DOM.itemRank_control = this.DOM.recordDisplayHeader.append("div").attr("class","itemRank_control fa")
+        .each(function(){
+          this.tipsy = new Tipsy(this, {gravity: 'n', 
+            title: function(){ return (me.showRank?"Hide":"Show")+" ranking"; }});
+        })
+        .on("mouseenter", function(){ this.tipsy.show(); })
+        .on("mouseleave", function(){ this.tipsy.hide(); })
+        .on("click",      function(){ this.tipsy.hide(); me.setShowRank(!me.showRank); });
+
+      this.initDOM_SortSelect();
+      this.initDOM_GlobalTextSearch();
+
+      // Change record display view
+      var x= this.DOM.recordDisplayHeader.append("span").attr("class","recordDisplay_ViewGroup");
+      x.append("span").text("View ").attr("class","recordView_HeaderSet");
+      x = x.append("span").attr("class","pofffffff");
+      x.selectAll("span.fa").data([
+        {v:'Map', i:"globe"},
+        {v:'List', i:"list-ul"},
+        {v:'NodeLink', i:"share-alt"}]
+      ).enter()
+        .append("span").attr("class", function(d){ return "recordDisplay_ViewAs"+d.v; })
+        .each(function(d){ 
+          this.tipsy = new Tipsy(this, {gravity: 'ne', title: function(){ return d.v; } }); 
+        })
+        .on("mouseenter", function(){ this.tipsy.show(); })
+        .on("mouseleave", function(){ this.tipsy.hide(); })
+        .on("click",      function(d){ this.tipsy.hide(); me.viewAs(d.v); })
+        .append("span").attr("class", function(d){ return " fa fa-"+d.i; });
+      x.append("span").attr("class","recordDisplay_ViewAsScatter")
+        .each(function(d){ this.tipsy = new Tipsy(this, {gravity: 'n', title: "Scatter"});  })
+        .on("mouseenter", function(){ this.tipsy.show(); })
+        .on("mouseleave", function(){ this.tipsy.hide(); })
+        .on("click",      function(){ this.tipsy.hide(); me.viewAs('scatter'); })
+        .html('<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 24 24">'+
+          '<path d="M 0 0 L 0 23 L 0 24 L 1 24 L 24 24 L 24 22 L 2 22 L 2 0 L 0 0 z"></path>'+
+            '<circle cx="10" cy="10" r="3"/><circle cx="18" cy="15" r="3"/><circle cx="19" cy="7" r="3"/>'+
+            '<circle cx="8" cy="17" r="3"/>'+
+          '</svg>')
+
+
+      this.DOM.recordDisplayName = this.DOM.recordDisplayHeader.append("div")
+        .attr("class","recordDisplayName")
+        .html(this.browser.recordName);
+
+      // Collapse record display button
+      this.DOM.recordDisplayHeader.append("div")
+        .attr("class","buttonRecordViewCollapse fa fa-compress")
+        .each(function(){ this.tipsy = new Tipsy(this, {gravity: 'e', title: "Collapse" }); })
+        .on("mouseenter", function(){ this.tipsy.show(); })
+        .on("mouseleave", function(){ this.tipsy.hide(); })
+        .on("click",      function(){ this.tipsy.hide(); me.collapseRecordViewSummary(true); });
+      // Expand record display button
+      this.DOM.recordDisplayHeader.append("div")
+        .attr("class","buttonRecordViewExpand fa fa-expand")
+        .each(function(){ this.tipsy = new Tipsy(this, {gravity: 'e', title: "Open" }); })
+        .on("mouseenter", function(){ this.tipsy.show(); })
+        .on("mouseleave", function(){ this.tipsy.hide(); })
+        .on("click",      function(){ this.tipsy.hide(); me.collapseRecordViewSummary(false); });
+      // Remove record display button
+      this.DOM.buttonRecordViewRemove = this.DOM.recordDisplayHeader.append("div")
+        .attr("class","buttonRecordViewRemove fa fa-times-circle-o")
+        .each(function(){ this.tipsy = new Tipsy(this, {gravity: 'ne', title: kshf.lang.cur.RemoveRecords }); })
+        .on("mouseenter", function(){ this.tipsy.show(); })
+        .on("mouseleave", function(){ this.tipsy.hide(); })
+        .on("click",      function(){ this.tipsy.hide(); me.removeRecordViewSummary(); });
+
+      this.DOM.scrollToTop = this.DOM.recordDisplayHeader.append("div").attr("class","scrollToTop fa fa-arrow-up")
+        .each(function(){ this.tipsy = new Tipsy(this, {gravity: 'e', title: kshf.lang.cur.ScrollToTop }); })
+        .on("mouseenter", function(){ this.tipsy.show(); })
+        .on("mouseleave", function(){ this.tipsy.hide(); })
+        .on("click",      function(){ this.tipsy.hide(); kshf.Util.scrollToPos_do(me.DOM.recordGroup,0); });
+    },
+    /** -- */
+    initDOM_SortSelect: function(){
+      var me=this;
+
+      this.DOM.recordSortOptions = this.DOM.recordDisplayHeader.append("div").attr("class","recordSortOptions");
+
+      this.DOM.recordSortSelectbox = this.DOM.recordSortOptions.append("select")
+        .attr("class","recordSortSelectbox")
+        .on("change", function(){ me.setSortingOpt_Active(this.selectedOptions[0].__data__); });
+
+      this.refreshSortingOptions();
+
+      this.DOM.recordDisplayHeader.append("span")
+        .attr("class","recordReverseSortButton sortButton fa")
+        .each(function(){ this.tipsy = new Tipsy(this, { gravity: 'w', title: kshf.lang.cur.ReverseOrder }); })
+        .on("mouseenter", function(){ this.tipsy.show(); })
+        .on("mouseleave", function(){ this.tipsy.hide(); })
+        .on("click",function(){
+          this.tipsy.hide();
+          // NOTE: Only available on list/grid views (?)
+          me.sortingOpt_Active.inverse = me.sortingOpt_Active.inverse?false:true;
+          this.setAttribute("inverse",me.sortingOpt_Active.inverse);
+          // TODO: Do not show no-value items on top, reversing needs to be a little smarter.
+          me.browser.records.reverse();
+
+          me.updateRecordRanks();
+          me.refreshRecordDOM();
+          me.refreshRecordRanks(me.DOM.recordRanks);
+
+          me.refreshRecordDOMOrder();
+        });
+    },
+    /** -- */
+    initDOM_GlobalTextSearch: function(){
+      var me=this;
+
+      this.DOM.recordTextSearch = this.DOM.recordDisplayHeader.append("span").attr("class","recordTextSearch");
+
+      var x= this.DOM.recordTextSearch.append("div").attr("class","dropZone_textSearch")
+        .on("mouseenter",function(){ this.style.backgroundColor = "rgb(255, 188, 163)"; })
+        .on("mouseleave",function(){ this.style.backgroundColor = ""; })
+        .on("mouseup"   ,function(){ me.setTextSearchSummary(me.movedSummary); });
+      x.append("div").attr("class","dropZone_textSearch_text").text("Text search");
+
+      var processKeyEvent = function(dom){
+        me.textFilter.setQueryString(dom.value);
+        
+        if(event.key=== 'Enter'){ // Enter pressed
+          dom.tipsy.hide();
+          if(d3.event.shiftKey) {
+            // Compare selection
+            if(me.textFilter.queryString!=="") {
+              me.browser.setSelect_Compare();
+            } else {
+              me.textFilter.clearFilter();
+            }
+          } else {
+            // Filter selection
+            if(me.textFilter.queryString!=="") {
+              me.textFilter.addFilter();
+            } else {
+              me.textFilter.clearFilter();
+            }
+          }
+          return;
+        }
+
+        // Highlight selection
+        if(dom.timer) clearTimeout(dom.timer);
+        dom.timer = setTimeout( function(){
+          if(me.textFilter.filterQuery.length==0){
+            dom.tipsy.hide();
+            me.browser.clearSelect_Highlight();
+            return;
+          }
+          dom.tipsy.show();
+          // Highlight selection
+          var summaryID = me.textSearchSummary.summaryID;
+          var records = [];
+          me.browser.records.forEach(function(record){
+            var v = record._valueCache[summaryID];
+            var f = false;
+            if(v){
+              v = (""+v).toLowerCase();
+              if(me.textFilter.multiMode==='or'){
+                f = !me.textFilter.filterQuery.every(function(v_i){ return v.indexOf(v_i)===-1; });
+              } else if(me.textFilter.multiMode==='and'){
+                f =  me.textFilter.filterQuery.every(function(v_i){ return v.indexOf(v_i)!==-1; });
+              }
+              if(f) records.push(record);
+            }
+          });
+          me.browser.clearSelect_Highlight();
+          me.browser.flexAggr_Highlight.records = records;
+          me.browser.flexAggr_Highlight.summary = me.textSearchSummary;
+          me.browser.flexAggr_Highlight.data = {id: "*"+me.textFilter.queryString+"*"};
+          me.browser.setSelect_Highlight();
+          dom.timer = null;
+        }, 250);
+      };
+
+      this.DOM.recordTextSearch.append("i").attr("class","fa fa-search searchIcon");
+      this.DOM.recordTextSearch.append("input").attr("type","text").attr("class","textSearchInput")
+        .each(function(){ 
+          this.tipsy = new Tipsy(this, {gravity: 'n', 
+            title: '<b><u>Enter</u></b> to filter <i class="fa fa-filter"></i><br><br>'+
+            '<b><u>Shift+Enter</u></b> to lock <i class="fa fa-lock"></i>' }); 
+        })
+        .on("blur",function(){ this.tipsy.hide(); })
+        .on("keydown",function() { d3.event.stopPropagation(); })
+        .on("keypress",function(){ d3.event.stopPropagation(); })
+        .on("keyup",function(){
+          processKeyEvent(this);
+          d3.event.stopPropagation();
+        });
+      this.DOM.recordTextSearch.append("span").attr("class","fa fa-times-circle clearSearchText")
+        .attr("mode","and")
+        .each(function(){ this.tipsy = new Tipsy(this, {gravity: 'ne', title: kshf.lang.cur.RemoveFilter }); })
+        .on("mouseenter", function(){ this.tipsy.show(); })
+        .on("mouseleave", function(){ this.tipsy.hide(); })
+        .on("click",      function(){ this.tipsy.hide(); me.textFilter.clearFilter(); });
+      
+      this.DOM.recordTextSearch.selectAll(".textSearchMode").data(["and","or"]).enter()
+        .append("span")
+          .attr("class","textSearchMode")
+          .attr("mode",function(d){return d;})
+          .each(function(d){ 
+            this.tipsy = new Tipsy(this, {
+              gravity: 'ne', 
+              title: (d==="and") ? "All words<br> must appear." : "At least one word<br> must appear." });
+          })
+          .on("mouseenter", function(){ this.tipsy.show(); })
+          .on("mouseleave", function(){ this.tipsy.hide(); })
+          .on("click",    function(d) { this.tipsy.hide();
+            me.DOM.recordTextSearch.attr("mode",d);
+            me.textFilter.multiMode = d;
+            me.textFilter.addFilter();
+          });
+    },
+    /** -- */
+    setDrawSelect: function(v){
+      this.drawSelect = v;
+      this.DOM.recordDisplayWrapper.attr("drawSelect",this.drawSelect);
+    },
+    /** -- */
+    initDOM_MapView: function(){
+      var me = this;
+      if(this.DOM.recordBase_Map) {
+        this.DOM.recordGroup = this.DOM.recordMap_SVG.select(".recordGroup");
+        this.DOM.kshfRecords = this.DOM.recordGroup.selectAll(".kshfRecord");
+        return; // Do not initialize twice
+      }
+
+      this.DOM.recordBase_Map = this.DOM.recordDisplayWrapper.append("div").attr("class","recordBase_Map");
+
+      // init _geo_ property
       var _geo_ = this.config.geo;
       if(typeof _geo_ === "string"){
         if(_geo_.substr(0,8)==="function"){
@@ -1223,30 +1925,17 @@ kshf.RecordDisplay.prototype = {
           _geo_ = function(){ return this[x]; }
         }
       }
-      // Compute _geoBound_ of each record
+      // Compute _geoFeat_ of each record
       this.browser.records.forEach(function(record){
         var feature = _geo_.call(record.data);
         if(feature) record._geoFeat_ = feature;
       });
-    },
-    /** -- */
-    initRecordGeoBound: function(){
       // Compute _geoBound_ of each record
       this.browser.records.forEach(function(record){
-        var feature = record._geoFeat_;
-        if(feature) record._geoBound_ = d3.geo.bounds(feature);
+        if(record._geoFeat_) record._geoBound_ = d3.geoBounds(record._geoFeat_);
       });
-    },
-    /** -- */
-    initDOM_MapView: function(){
-      var me = this;
-      if(this.DOM.recordMap_Base) {
-        this.DOM.recordGroup = this.DOM.recordMap_SVG.select(".recordGroup");
-        this.DOM.kshfRecords = this.DOM.recordGroup.selectAll(".kshfRecord");
-        return; // Do not initialize twice
-      }
 
-      this.setSpatialFilter();
+      this.spatialFilter = this.browser.createFilter('spatial',this);
 
       function updateRectangle(bounds){
         var north_west = me.leafletRecordMap.latLngToLayerPoint(bounds.getNorthWest());
@@ -1257,45 +1946,37 @@ kshf.RecordDisplay.prototype = {
         this.style.width  = Math.abs(south_east.x-north_west.x)+"px";
       };
 
-      this.DOM.recordMap_Base = this.DOM.recordDisplayWrapper.append("div").attr("class","recordMap_Base");
-      var zoomInit;
-
-      this.leafletRecordMap = L.map(this.DOM.recordMap_Base[0][0], kshf.map.config )
+      this.leafletRecordMap = L.map(this.DOM.recordBase_Map.node(), kshf.map.config )
         .addLayer( new L.TileLayer( kshf.map.tileTemplate, kshf.map.tileConfig) )
+        .setView(L.latLng(0,0),0)
         .on("viewreset",function(){ 
-          me.map_projectRecords();
+          me.recMap_projectRecords();
         })
         .on("movestart",function(){
+          me.DOM.recordDisplayWrapper.attr("dragging",true);
           me.browser.DOM.root.attr("pointerEvents",false);
-          zoomInit = this.getZoom();
-          me.DOM.recordMap_SVG.style("opacity",0.3);
-          me.DOM.recordMap_Base.selectAll(".spatialQueryBox").style("display","none");
+          this._zoomInit_ = this.getZoom();
         })
         .on("moveend",function(){
+          me.DOM.recordDisplayWrapper.attr("dragging",null);
           me.browser.DOM.root.attr("pointerEvents",true);
-          me.DOM.recordMap_SVG.style("opacity",null);
-          me.DOM.recordMap_Base.selectAll(".spatialQueryBox").style("display",null);
           me.refreshViz_Compare_All();
-          me.DOM.recordMap_Base.select(".spatialQueryBox_Filter")
-            .each(function(d){
-              var bounds = me.spatialFilter.bounds;
-              if(bounds) updateRectangle.call(this,bounds);
-            });
-          me.DOM.recordMap_Base.select(".spatialQueryBox_Highlight")
+          me.refreshQueryBox_Filter();
+          me.DOM.recordDisplayWrapper.select(".spatialQueryBox_Highlight")
             .each(function(d){
               var bounds = me.browser.flexAggr_Highlight.bounds;
               if(bounds) updateRectangle.call(this,bounds);
             });
-          me.DOM.recordMap_Base.selectAll("[class*='spatialQueryBox_Comp']")
+          me.DOM.recordDisplayWrapper.selectAll("[class*='spatialQueryBox_Comp']")
             .each(function(d){
               var bounds = me.browser['flexAggr_'+d].bounds;
               if(bounds) updateRectangle.call(this,bounds);
             });
-          if(this.getZoom()!==zoomInit) me.map_projectRecords();
+          if(this.getZoom()!==this._zoomInit_) me.recMap_projectRecords();
         });
 
-      this.recordGeoPath = d3.geo.path().projection( 
-        d3.geo.transform({
+      this.recordGeoPath = d3.geoPath().projection( 
+        d3.geoTransform({
           // Use Leaflet to implement a D3 geometric transformation.
           point: function(x, y) {
             if(x>kshf.map.wrapLongitude) x-=360;
@@ -1305,103 +1986,156 @@ kshf.RecordDisplay.prototype = {
         }) 
       );
 
-      this.initRecordGeoFeat();
-      this.initRecordGeoBound();
+      this.insertQueryBoxes(this.DOM.recordBase_Map.select(".leaflet-overlay-pane"),
+        function(t){
+          if(d3.event.which !== 1) return; // only respond to left-click
+          me.setDrawSelect("Drag");
+          me.DOM.recordDisplayWrapper.attr("dragging",true);
+          var bounds;
+          d3.select("body").on("mousemove", function(e){
+            var curPos = d3.mouse(me.DOM.recordBase_Map.select(".leaflet-tile-pane").node());
+            //var curLatLong = me.leafletRecordMap.layerPointToLatLng(L.point(curPos[0], curPos[1]));
+            var north_west = me.leafletRecordMap.latLngToLayerPoint(me.spatialFilter.bounds.getNorthWest());
+            var south_east = me.leafletRecordMap.latLngToLayerPoint(me.spatialFilter.bounds.getSouthEast());
+            if(t==='l'){
+              north_west.x = curPos[0];
+            }
+            if(t==='r'){
+              south_east.x = curPos[0];
+            }
+            if(t==='t'){
+              north_west.y = curPos[1];
+            }
+            if(t==='b'){
+              south_east.y = curPos[1];
+            }
+            bounds = L.latLngBounds([
+              me.leafletRecordMap.layerPointToLatLng(L.point(north_west.x, north_west.y)),
+              me.leafletRecordMap.layerPointToLatLng(L.point(south_east.x, south_east.y))
+            ]);
+            me.refreshQueryBox_Filter(bounds);
+          }).on("mouseup", function(){
+            me.spatialFilter.bounds = bounds;
+            me.spatialFilter.addFilter();
+            me.setDrawSelect(null);
+            me.DOM.recordDisplayWrapper.attr("dragging",null);
+            d3.select("body").on("mousemove",null).on("mouseup",null);
+          });
+          d3.event.preventDefault();
+          d3.event.stopPropagation();
+        },
+        function(t){
+          if(d3.event.which !== 1) return; // only respond to left-click
+          me.setDrawSelect("Drag");
+          me.DOM.recordDisplayWrapper.attr("dragging",true);
+          var initPos = d3.mouse(me.DOM.recordBase_Map.select(".leaflet-tile-pane").node());
+          var north_west = me.leafletRecordMap.latLngToLayerPoint(me.spatialFilter.bounds.getNorthWest());
+          var south_east = me.leafletRecordMap.latLngToLayerPoint(me.spatialFilter.bounds.getSouthEast());
+          d3.select("body").on("mousemove", function(e){
+            var curPos = d3.mouse(me.DOM.recordBase_Map.select(".leaflet-tile-pane").node());
+            var difPos = [ initPos[0]-curPos[0], initPos[1]-curPos[1] ];
+            // TODO: Move the bounds, do not draw a new one
+            var bounds = L.latLngBounds([
+              me.leafletRecordMap.layerPointToLatLng(
+                L.point(north_west.x-difPos[0], north_west.y-difPos[1])),
+              me.leafletRecordMap.layerPointToLatLng(
+                L.point(south_east.x-difPos[0], south_east.y-difPos[1]))
+            ]);
+            me.spatialFilter.bounds = bounds;
+            me.refreshQueryBox_Filter(bounds);
+          }).on("mouseup", function(){
+            me.spatialFilter.addFilter();
+            me.setDrawSelect(null);
+            me.DOM.recordDisplayWrapper.attr("dragging",null);
+            d3.select("body").on("mousemove",null).on("mouseup",null);
+          });
+          d3.event.preventDefault();
+          d3.event.stopPropagation();
+        },
+        function(d){
+          if(d==="Filter"){
+            me.spatialFilter.clearFilter();
+          } else if(d!=="Highlight"){
+            me.browser.clearSelect_Compare(d.substr(8));
+          }
+          this.tipsy.hide();
+        }
+      );
 
-      this.DOM.recordMap_Base.select(".leaflet-overlay-pane").selectAll(".spatialQueryBox")
-        .data(["Filter","Highlight","Compare_A","Compare_B","Compare_C"])
-        .enter()
-          .append("div").attr("class", function(d){ return "spatialQueryBox spatialQueryBox_"+d; })
-            .append("div").attr("class","clearSelection fa fa-times-circle")
-              .each(function(d){ 
-                this.tipsy = new Tipsy(this, {gravity: 'se', 
-                  title: (d==="Filter") ? kshf.lang.cur.RemoveFilter : kshf.lang.cur.Unlock
-                });
-              })
-              .on("mouseenter", function(){ this.tipsy.show(); })
-              .on("mouseleave", function(){ this.tipsy.hide(); })
-              .on("click", function(d){
-                if(d==="Filter"){
-                  me.spatialFilter.clearFilter();
-                } else if(d!=="Highlight"){
-                  me.browser.clearSelect_Compare(d.substr(8), true);
-                }
-                this.tipsy.hide();
-              });
-
-      this.drawSelect = false;
-      this.DOM.recordMap_Base.select(".leaflet-tile-pane")
+      this.drawSelect = null;
+      this.DOM.recordBase_Map.select(".leaflet-tile-pane")
         .on("mousedown",function(){
-          if(me.mapMouseControl!=="draw") return;
+          if(me.visMouseMode!=="draw") return;
           if(me.drawSelect==="Highlight") return;
-          var mousePos = d3.mouse(this);  
-          var curLatLong = me.leafletRecordMap.layerPointToLatLng(L.point(mousePos[0], mousePos[1]));
-          me.DOM.recordMap_Base.attr("drawSelect","Filter");
-          me.drawingStartPoint = curLatLong;
-          me.drawSelect = "Filter";
+          me.DOM.recordDisplayWrapper.attr("dragging",true);
+          me.setDrawSelect("Filter");
+          me.drawingStartPoint = me.leafletRecordMap
+            .layerPointToLatLng(L.point(d3.mouse(this)[0], d3.mouse(this)[1]));
           d3.event.stopPropagation();
           d3.event.preventDefault();
         })
-        .on("mouseup",function(){ 
-          if(me.mapMouseControl!=="draw") return;
-          d3.event.stopPropagation();
-          d3.event.preventDefault();
-          me.DOM.recordMap_Base.attr("drawSelect",null);
+        .on("mouseup",function(){
+          if(me.drawSelect==="Drag") return;
+          if(me.visMouseMode!=="draw") return;
+          me.DOM.recordDisplayWrapper.attr("dragging",null);
           if(me.drawSelect==="Filter"){
             me.spatialFilter.addFilter();
           } else if(me.drawSelect==="Highlight"){
             var bounds = me.browser.flexAggr_Highlight.bounds;
             var cT = me.browser.setSelect_Compare(false,true);
             me.browser['flexAggr_Compare_'+cT].bounds = bounds;
-            me.DOM.recordMap_Base.select(".spatialQueryBox_Compare_"+cT)
+            me.DOM.recordDisplayWrapper.select(".spatialQueryBox_Compare_"+cT)
               .attr("active",true)
-              .each(function(d){ updateRectangle.call(this,bounds); });
+              .each(function(){ updateRectangle.call(this,bounds); });
           }
-          me.drawSelect = false;
+          me.setDrawSelect(null);
+          d3.event.stopPropagation();
+          d3.event.preventDefault();
         })
         .on("mousemove",function(){
-          if(me.mapMouseControl!=="draw") return;
+          if(me.visMouseMode!=="draw") return;
+          if(me.drawSelect==="Drag") return;
           if(me.drawSelect!=="Filter" && !d3.event.shiftKey){
-            me.drawSelect = false;
-            me.DOM.recordMap_Base.attr("drawSelect",null);
+            me.DOM.recordDisplayWrapper.attr("dragging",null);
+            me.setDrawSelect(null);
             me.browser.clearSelect_Highlight();
+            return;
           }
+          me.DOM.recordDisplayWrapper.attr("dragging",true);
           var mousePos = d3.mouse(this);
           var curLatLong = me.leafletRecordMap.layerPointToLatLng(L.point(mousePos[0], mousePos[1]));
           if(d3.event.shiftKey && !me.drawSelect){
-            me.DOM.recordMap_Base.attr("drawSelect","Highlight");
-            me.drawingStartPoint = curLatLong;              
-            me.drawSelect = "Highlight";
+            me.setDrawSelect("Highlight");
+            me.drawingStartPoint = curLatLong;
           }
           if(!me.drawSelect) return;
 
           var bounds = L.latLngBounds([me.drawingStartPoint,curLatLong]);
           if(me.drawSelect==="Highlight"){
-            me.browser.flexAggr_Highlight.bounds = bounds;
-            //me.spatialQuery.highlight.setBounds(bounds);
-            // Refresh bounds
-            me.DOM.recordMap_Base.select(".spatialQueryBox_Highlight")
+            me.DOM.recordDisplayWrapper.select(".spatialQueryBox_Highlight")
               .each(function(d){ updateRectangle.call(this,bounds); });
 
-            var records = [];
-            me.browser.records.forEach(function(record){ 
-              if(!record.isWanted) return;
-              if(record._geoBound_ === undefined) return;
-              // already have "bounds" variable
-              if(kshf.intersects(record._geoBound_, bounds)){
-                records.push(record);
-              } else {
-                record.remForHighlight(true);
-              }
-            });
-            me.browser.flexAggr_Highlight.summary = me.recordViewSummary; // record display
-            me.browser.flexAggr_Highlight.records = records;
-            me.browser.setSelect_Highlight();
+            if(this.tempTimer) clearTimeout(this.tempTimer);
+            this.tempTimer = setTimeout(function(){
+              var records = [];
+              me.browser.records.forEach(function(record){ 
+                if(!record.isWanted) return;
+                if(record._geoBound_ === undefined) return;
+                // already have "bounds" variable
+                if(kshf.intersects(record._geoBound_, bounds)){
+                  records.push(record);
+                } else {
+                  record.remForHighlight(true);
+                }
+              });
+              me.browser.flexAggr_Highlight.summary = me.recordViewSummary; // record display
+              me.browser.flexAggr_Highlight.records = records;
+              me.browser.flexAggr_Highlight.bounds = bounds;
+              me.browser.setSelect_Highlight();
+            }, 150);
           } else {
             me.spatialFilter.bounds = bounds;
-            me.DOM.recordMap_Base.select(".spatialQueryBox_Filter")
-              .each(function(d){ updateRectangle.call(this,bounds); });
-            //me.spatialQuery.filter.setBounds(bounds);
+            me.refreshQueryBox_Filter(bounds);
           }
           d3.event.stopPropagation();
           d3.event.preventDefault();
@@ -1414,28 +2148,84 @@ kshf.RecordDisplay.prototype = {
       // http://stackoverflow.com/questions/17776641/fill-rect-with-pattern
       this.DOM.recordMap_SVG.append('defs')
         .append('pattern')
-          .attr('id', 'diagonalHatch')
-          .attr('patternUnits', 'userSpaceOnUse')
-          .attr('width', 4)
-          .attr('height', 4)
-          .append('path')
-            .attr('d', 'M-1,1 l2,-2 M0,4 l4,-4 M3,5 l2,-2')
-            .attr('stroke', 'gray')
-            .attr('stroke-width', 1);
+          .attrs({
+            id: 'diagonalHatch',
+            patternUnits: 'userSpaceOnUse',
+            width: 4,
+            height: 4,
+          })
+          .append('path').attrs({
+            d: 'M-1,1 l2,-2 M0,4 l4,-4 M3,5 l2,-2',
+            stroke: 'gray',
+            'stroke-width': 1
+          });
 
       this.DOM.recordGroup = this.DOM.recordMap_SVG.append("g").attr("class", "leaflet-zoom-hide recordGroup");
 
-      // Add custom controls
-      var DOM_control = d3.select(this.leafletRecordMap.getContainer()).select(".leaflet-control");
+      var DOM_control = d3.select(this.leafletRecordMap.getContainer()).select(".leaflet-control-container");
 
-      DOM_control.append("a")
-        .attr("class","leaflet-control-view-map")
+      this.initDOM_CustomControls();
+    },
+    /** -- */
+    initDOM_CustomControls: function(){
+      var me = this;
+      if(this.DOM.visViewControl) return;
+
+      var X = this.DOM.recordDisplayWrapper.append("span").attr("class","visViewControl");
+      this.DOM.visViewControl = X;
+
+      // **************************************************
+      // SCATTER OPTIONS
+      var s = X.append("span").attr("class","ScatterControl-ScatterAttrib visViewControlButton");
+      s.append("span").text("→ Vs: ");
+      s.append("select")
+        .on("change",function(){ me.setScatterAttrib(this.selectedOptions[0].__data__); });;
+      this.refreshScatterOptions();
+
+      // ***************************************************
+      // LINK OPTIONS
+      var s = X.append("span").attr("class","LinkControl-LinkAttrib visViewControlButton").append("select")
+        .on("change",function(){
+          // TODO
+        });;
+      s.selectAll("option").data(this.linkBy).enter().append("option").text(function(d){ return d; });
+
+      // **************************************************
+      // FORCE LAYOUT OPTIONS
+      X.append("span").attr("class","NodeLinkControl-LinkIcon visViewControlButton fa fa-share-alt")
+        .each(function(){ 
+          this.tipsy = new Tipsy(this, { gravity: 's',  
+            title: function(){
+              return (me.DOM.root.classed("hideLinks")?"Show":"Hide")+" All Links";
+            }});
+        })
+        .on("mouseenter", function(){ this.tipsy.show(); })
+        .on("mouseleave", function(){ this.tipsy.hide(); })
+        .on("click",      function(){ this.tipsy.hide();
+          me.DOM.root.classed("hideLinks", me.DOM.root.classed("hideLinks")?null:true );
+        });
+      X.append("span")
+        .attr("class","NodeLinkControl-AnimPlay visViewControlButton fa fa-play")
+        .on("click",function(){ 
+          me.nodelink_Force.alpha(0.5);
+          me.nodelink_restart();
+        });
+      X.append("span")
+        .attr("class","NodeLinkControl-AnimPause visViewControlButton fa fa-pause")
+        .on("click",function(){ 
+          me.nodelink_Force.stop();
+          me.DOM.root.attr("NodeLinkState","stopped");
+          me.DOM.root.classed("hideLinks",null);
+        });
+
+      // **************************************************
+      // MAP OPTIONS
+      X.append("span")
+        .attr("class","MapControl-ShowHideMap visViewControlButton fa fa-map-o")
         .attr("title","Show/Hide Map")
-        .attr("href","#")
-        .each(function(){ this.tipsy = new Tipsy(this, {gravity: 'w', title: "Show/Hide Map"}); })
+        .each(function(){ this.tipsy = new Tipsy(this, {gravity: 's', title: "Show/Hide Map"}); })
         .on("mouseover",function(){ this.tipsy.show(); })
         .on("mouseout", function(){ this.tipsy.hide(); })
-        .html("<span class='viewMap fa fa-map-o'></span>")
         .on("dblclick",function(){
           d3.event.preventDefault();
           d3.event.stopPropagation();
@@ -1443,96 +2233,563 @@ kshf.RecordDisplay.prototype = {
         .on("click",function(){
           var x = d3.select(me.leafletRecordMap.getPanes().tilePane);
           x.attr("showhide", x.attr("showhide")==="hide"?"show":"hide");
-          d3.select(this.childNodes[0]).attr("class","fa fa-map"+((x.attr("showhide")==="hide")?"":"-o"));
+          d3.select(this).attr("class","MapControl-ShowHideMap visViewControlButton fa fa-map"+((x.attr("showhide")==="hide")?"":"-o"));
           d3.event.preventDefault();
           d3.event.stopPropagation();
         });
 
-      DOM_control.append("a").attr("class","mapMouseControl fa")
-        .each(function(){ 
-          this.tipsy = new Tipsy(this, {gravity: 'w', title: function(){
-            return "Drag mouse to "+(me.mapMouseControl==="pan"?"draw":"pan");
-          } }); 
+      // **************************************************
+      // SHARED OPTIONS
+      X.selectAll(".MouseMode").data(['draw','pan']).enter().append("span")
+        .attr("class",function(t){ 
+          return "visViewControlButton MouseMode-"+t+" fa "+"fa-"+(t==='draw'?'square-o':'hand-rock-o');
+        })
+        .each(function(t){ 
+          this.tipsy = new Tipsy(this, {gravity: 's', title: function(){ return "Click &amp; drag mouse to "+t;}} );
         })
         .on("mouseover",function(){ this.tipsy.show(); })
         .on("mouseout", function(){ this.tipsy.hide(); })
-        .on("click",function(){ 
-          me.mapMouseControl = me.mapMouseControl==="pan"?"draw":"pan";
-          me.DOM.root.attr("mapMouseControl",me.mapMouseControl);
+        .on("click",function(t){ 
+          me.visMouseMode = me.visMouseMode=t;
+          me.DOM.root.attr("visMouseMode",me.visMouseMode);
+          if(me.DOM.recordGroupHolder){
+            if(t==='draw'){
+              me.DOM.recordGroupHolder
+                .on("wheel.zoom", null)
+                .on("mousedown.zoom", null)
+                .on("dblclick.zoom", null)
+                .on("touchstart.zoom", null)
+                .on("touchmove.zoom", null)
+                .on("touchend.zoom touchcancel.zoom", null)
+            } else {
+              me.DOM.recordGroupHolder.call(me.scatterZoom);
+            }
+          } else {
+          }
         });
 
-      DOM_control.append("a")
-        .attr("class","leaflet-control-viewFit").attr("title",kshf.lang.cur.ZoomToFit)
-        .attr("href","#")
-        .each(function(){ this.tipsy = new Tipsy(this, {gravity: 'w', title: kshf.lang.cur.ZoomToFit}); })
+      X.append("span")
+        .attr("class","visViewControlButton fa fa-plus")
+        .each(function(){ this.tipsy = new Tipsy(this, {gravity: 's', title: "Zoom in"} ); })
         .on("mouseover",function(){ this.tipsy.show(); })
         .on("mouseout", function(){ this.tipsy.hide(); })
-        .html("<span class='viewFit fa fa-arrows-alt'></span>")
+        .on("click",function(){ 
+          if(me.viewRecAs==='map'){
+            me.leafletRecordMap.zoomIn();
+          } else if(me.viewRecAs==='scatter'){
+            me.scatterPositionAnim = true;
+            me.scatterZoom.scaleBy(me.DOM.recordGroupHolder, 2);
+            me.scatterPositionAnim = false;
+          } else if(me.viewRecAs==='nodelink'){
+            me.nodeZoomBehavior.scaleBy(me.DOM.recordBase_NodeLink, 2);
+            me._refreshNodeLinkSVG_Transform();
+          }
+        });
+      X.append("span")
+        .attr("class","visViewControlButton fa fa-minus")
+        .each(function(){ this.tipsy = new Tipsy(this, {gravity: 's', title: "Zoom out"} ); })
+        .on("mouseover",function(){ this.tipsy.show(); })
+        .on("mouseout", function(){ this.tipsy.hide(); })
+        .on("click",function(){ 
+          if(me.viewRecAs==='map'){
+            me.leafletRecordMap.zoomOut();
+          } else if(me.viewRecAs==='scatter'){
+            me.scatterPositionAnim = true;
+            me.scatterZoom.scaleBy(me.DOM.recordGroupHolder, 1/2);
+            me.scatterPositionAnim = false;
+          } else if(me.viewRecAs==='nodelink'){
+            me.nodeZoomBehavior.scaleBy(me.DOM.recordBase_NodeLink, 1/2);
+            me._refreshNodeLinkSVG_Transform();
+          }
+        });
+      X.append("span")
+        .attr("class","visViewControlButton fa fa-arrows-alt")
+        .each(function(){ this.tipsy = new Tipsy(this, {gravity: 's', title: kshf.lang.cur.ZoomToFit}); })
+        .on("mouseover",function(){ this.tipsy.show(); })
+        .on("mouseout", function(){ this.tipsy.hide(); })
         .on("dblclick",function(){
           d3.event.preventDefault();
           d3.event.stopPropagation();
         })
-        .on("click",function(){
-          me.map_zoomToActive();
+        .on("click",function(){ 
+          if(me.viewRecAs==='map'){
+            me.recMap_zoomToActive();
+          } else if(me.viewRecAs==='nodelink'){
+            me.nodelink_zoomToActive();
+          } else if(me.viewRecAs==='scatter'){
+            me.resetScatterZoom();
+          }
           d3.event.preventDefault();
           d3.event.stopPropagation();
         });
     },
     /** -- */
-    refreshViz_Compare_All: function(){
-      if(this.displayType==='map') {
-        var me=this;
-        this.DOM.recordMap_Base.selectAll("[class*='spatialQueryBox_Comp']")
-          .attr("active", function(d){ return me.browser.vizActive[d] ? true : null; });
+    resetScatterZoom: function(){
+      this.scatterPositionAnim = true;
+      var i = d3.zoomIdentity.translate(20,15);
+      this.scatterZoom.transform(this.DOM.recordGroupHolder, i);
+      this.scatterPositionAnim = false;
+    },
+    /** -- */
+    refreshQueryBox_Filter: function(bounds){
+      if(this.viewRecAs!=='scatter' && this.viewRecAs!=='map') return;
+      var _left, _right, _top, _bottom;
+
+      if(this.viewRecAs==='map' && bounds===undefined && this.spatialFilter.isFiltered){
+        var north_west = this.leafletRecordMap.latLngToLayerPoint(this.spatialFilter.bounds.getNorthWest());
+        var south_east = this.leafletRecordMap.latLngToLayerPoint(this.spatialFilter.bounds.getSouthEast());
+        _left = north_west.x;
+        _right = south_east.x
+        _top = north_west.y;
+        _bottom = south_east.y;
       }
+
+      if( (typeof L !== 'undefined') && bounds instanceof L.LatLngBounds){
+        var north_west = this.leafletRecordMap.latLngToLayerPoint(bounds.getNorthWest());
+        var south_east = this.leafletRecordMap.latLngToLayerPoint(bounds.getSouthEast());
+        _left = north_west.x;
+        _right = south_east.x
+        _top = north_west.y;
+        _bottom = south_east.y;
+      } else if(this.viewRecAs==='scatter'){
+        if(bounds===undefined){
+          // use summary filter ranges
+          _left   = this.scatterAttrib.summaryFilter.active.min;
+          _right  = this.scatterAttrib.summaryFilter.active.max;
+          _top    = this.sortingOpt_Active.summaryFilter.active.max;
+          _bottom = this.sortingOpt_Active.summaryFilter.active.min;
+
+          if(!this.scatterAttrib.isFiltered()){
+            _left  = this.scatterAttrib.intervalRange.total.min;
+            if(_left===0) _left=-1000;
+            _left = (_left>0) ? -_left*100 : _left*100;
+            _right = this.scatterAttrib.intervalRange.total.max;
+            if(_right===0) _right=1000;
+            _right = (_right>0) ? _right*100 : -_right*100;
+          } else {
+            if(this.scatterAttrib.stepTicks){
+              _left-=0.5;
+              _right-=0.5;
+            }
+          }
+          if(!this.sortingOpt_Active.isFiltered()){
+            _top    = this.sortingOpt_Active.intervalRange.total.max;
+            if(_top===0) _top=1000;
+            _top = (_top>0) ? _top*100 : -_top*100;
+            _bottom = this.sortingOpt_Active.intervalRange.total.min;
+            if(_bottom===0) _bottom=-1000;
+            _bottom = (_bottom>0) ? -_bottom*100 : _bottom*100;
+          } else {
+            if(this.sortingOpt_Active.stepTicks){
+              _top-=0.5;
+              _bottom-=0.5;
+            }
+          }
+        } else {
+          // use provided bounds
+          if(bounds.left>bounds.right){
+            var temp = bounds.left;
+            bounds.left = bounds.right;
+            bounds.right = temp;
+          }
+          if(bounds.top<bounds.bottom){
+            var temp = bounds.top;
+            bounds.top = bounds.bottom;
+            bounds.bottom = temp;
+          }
+          _left   = bounds.left;
+          _right  = bounds.right;
+          _top    = bounds.top;
+          _bottom = bounds.bottom;
+        }
+
+        // convert from domain to screen coordinates
+        var _left   = this.scatterScaleX(_left);
+        if(isNaN(_left)) _left = -1000; // log scale fix
+        var _right  = this.scatterScaleX(_right);
+        var _top    = this.scatterScaleY(_top);
+        var _bottom = this.scatterScaleY(_bottom);
+        if(isNaN(_bottom)) _bottom = 1000; // log scale fix
+
+        // give more room
+        _left   -= 3;
+        _right  += 3;
+        _top    -= 3;
+        _bottom += 3;
+      }
+
+      this.DOM.recordDisplayWrapper.select(".spatialQueryBox_Filter")
+        .attr("active", (
+            bounds || 
+            (this.scatterAttrib && this.scatterAttrib.isFiltered()) || 
+            (this.sortingOpt_Active && this.sortingOpt_Active.isFiltered()) ||
+            (this.spatialFilter && this.spatialFilter.isFiltered)
+          ) ? true: null )
+        .style("left",  _left+"px")
+        .style("top",   _top +"px")
+        .style("width", Math.abs(_right-_left)+"px")
+        .style("height",Math.abs(_bottom-_top)+"px");
+    },
+    /** -- */
+    initDOM_Scatter: function(){
+      var me = this;
+
+      if(this.DOM.recordBase_Scatter) {
+        this.DOM.recordGroup = this.DOM.recordBase_Scatter.select(".recordGroup");
+        this.DOM.kshfRecords = this.DOM.recordGroup.selectAll(".kshfRecord");
+        this.DOM.linkGroup   = this.DOM.recordGroup_Scatter.select(".linkGroup");
+        return; // Do not initialize twice
+      }
+
+      this.scatterTransform = {x:0, y:0, z:1 };
+      this.scatterPositionAnim = false;
+      this.scatterZoom = d3.zoom()
+        .scaleExtent([0.5, 8]) // 1 can cover the whole dataset.
+        .on("start",function(){
+          me.DOM.recordDisplayWrapper.attr("dragging",true);
+        })
+        .on("end",function(){
+          me.DOM.recordDisplayWrapper.attr("dragging",null);
+        })
+        .on("zoom", function(){
+          var old_z = me.scatterTransform.z;
+          me.scatterTransform.x = d3.event.transform.x;
+          me.scatterTransform.y = d3.event.transform.y;
+          me.scatterTransform.z = d3.event.transform.k;
+          me.DOM.recordGroup_Scatter
+            .style("transform", 
+              "translate(" + d3.event.transform.x + "px," + d3.event.transform.y+ "px) "+
+              "scale(" + d3.event.transform.k + ","+ d3.event.transform.k+") "
+              );
+          if(me.scatterTransform.z!==old_z){
+            me.refreshScatterVis();
+          } else {
+            me.refreshScatterTicks();
+          }
+        });
+
+      this.DOM.recordBase_Scatter = this.DOM.recordDisplayWrapper.append("div").attr("class","recordBase_Scatter");
+      this.DOM.scatterAxisGroup   = this.DOM.recordBase_Scatter  .append("div").attr("class","scatterAxisGroup");
+
+      var scatterAxisTemplate = "<div class='tickGroup'></div><div class='onRecordLine'><div class='tickLine'></div><div class='tickText'></div></div>";
+      this.DOM.scatterAxis_X = this.DOM.scatterAxisGroup.append("div")
+        .attr("class","scatterAxis scatterAxis_X")
+        .html(scatterAxisTemplate);
+      this.DOM.scatterAxis_Y = this.DOM.scatterAxisGroup.append("div")
+        .attr("class","scatterAxis scatterAxis_Y")
+        .html(scatterAxisTemplate);
+
+      function updateRectangle(bounds){
+        var _left   = me.scatterScaleX(bounds.left);
+        var _right  = me.scatterScaleX(bounds.right);
+        var _top    = me.scatterScaleY(bounds.top);
+        var _bottom = me.scatterScaleY(bounds.bottom);
+        d3.select(this)
+          .style("left",  _left+"px")
+          .style("top",   _top +"px")
+          .style("width", Math.abs(_right-_left)+"px")
+          .style("height",Math.abs(_bottom-_top)+"px");
+      };
+
+      this.drawSelect = null;
+      this.DOM.recordGroupHolder = this.DOM.recordBase_Scatter.append("div").attr("class","recordGroupHolder")
+        .on("mousedown",function(){
+          if(me.visMouseMode!=="draw") return;
+          if(me.drawSelect==="Highlight") return;
+          me.DOM.recordDisplayWrapper.attr("dragging",true);
+          me.setDrawSelect("Filter");
+          var mousePos = d3.mouse(this);
+          me.drawingStartPoint = [
+            me.scatterAxisScale_X.invert(mousePos[0]), me.scatterAxisScale_Y.invert(mousePos[1])
+          ];
+          d3.event.stopPropagation();
+          d3.event.preventDefault();
+        })
+        .on("mouseup",function(){ 
+          if(me.visMouseMode!=="draw") return;
+          if(me.drawSelect==="Drag") return;
+          if(me.drawSelect===null) return;
+          me.DOM.recordDisplayWrapper.attr("dragging",null);
+          if(me.drawSelect==="Filter"){
+            var mousePos = d3.mouse(this);
+            var curMousePos = [
+              me.scatterAxisScale_X.invert(mousePos[0]), me.scatterAxisScale_Y.invert(mousePos[1])
+            ];
+            if(curMousePos[1]!==me.drawingStartPoint[1] && me.drawingStartPoint[0] !== curMousePos[0]){
+              // enable filtering on both axis
+              me.sortingOpt_Active.setRangeFilter(me.drawingStartPoint[1], curMousePos[1]);
+              me.scatterAttrib.setRangeFilter(me.drawingStartPoint[0], curMousePos[0]);
+            }
+          } else if(me.drawSelect==="Highlight"){
+            // Set compare selection
+            var cT = me.browser.setSelect_Compare(false,true);
+            var bounds = me.browser.flexAggr_Highlight.bounds;
+            me.browser['flexAggr_Compare_'+cT].bounds = bounds;
+            me.DOM.recordDisplayWrapper.select(".spatialQueryBox_Compare_"+cT)
+              .attr("active",true)
+              .each(function(){ 
+                // TODO: FIX!
+                updateRectangle.call(this,bounds);
+              });
+          }
+          me.setDrawSelect(null);
+          d3.event.stopPropagation();
+          d3.event.preventDefault();
+        })
+        .on("mousemove",function(){
+          if(me.visMouseMode!=="draw") return;
+          var mousePos = d3.mouse(this);
+          var curMousePos = [
+            me.scatterAxisScale_X.invert(mousePos[0]), me.scatterAxisScale_Y.invert(mousePos[1])
+          ];
+          if(me.drawSelect===null){
+            if(d3.event.shiftKey){
+              me.setDrawSelect("Highlight");
+              me.drawingStartPoint = curMousePos;
+            } else {
+              return;
+            }
+          } else if(me.drawSelect==="Highlight"){
+            if(!d3.event.shiftKey){
+              me.setDrawSelect(null);
+              me.browser.clearSelect_Highlight();
+            } else {
+              // Highlight the area
+              var bounds = {
+                left: curMousePos[0],
+                right: me.drawingStartPoint[0],
+                top: curMousePos[1],
+                bottom: me.drawingStartPoint[1],
+              };
+              if(bounds.left>bounds.right){
+                var temp = bounds.left;
+                bounds.left = bounds.right;
+                bounds.right = temp;
+              }
+              if(bounds.top<bounds.bottom){
+                var temp = bounds.top;
+                bounds.top = bounds.bottom;
+                bounds.bottom = temp;
+              }
+              me.DOM.recordDisplayWrapper.select(".spatialQueryBox_Highlight")
+                .each(function(){ updateRectangle.call(this,bounds); });
+
+              if(this.tempTimer) clearTimeout(this.tempTimer);
+              this.tempTimer = setTimeout(function(){
+                var records = [];
+                var yID = me.sortingOpt_Active.summaryID;
+                var xID = me.scatterAttrib.summaryID;
+                me.browser.records.forEach(function(record){ 
+                  if(!record.isWanted) return;
+                  var _x = record._valueCache[xID];
+                  var _y = record._valueCache[yID];
+                  if(_x>=bounds.left && _x<bounds.right && _y>=bounds.bottom && _y<bounds.top){
+                    records.push(record);
+                  } else {
+                    record.remForHighlight(true);
+                  }
+                });
+                me.browser.flexAggr_Highlight.records = records;
+                me.browser.flexAggr_Highlight.summary = me.textSearchSummary;
+                me.browser.flexAggr_Highlight.bounds = bounds;
+                me.browser.flexAggr_Highlight.data = {id: "<i class='fa fa-square-o'></i> (Area)"};
+                me.browser.setSelect_Highlight();
+              }, 150);
+            }
+          } else if(me.drawSelect==="Filter"){
+            var bounds = {
+              left: curMousePos[0],
+              right: me.drawingStartPoint[0],
+              top: curMousePos[1],
+              bottom: me.drawingStartPoint[1],
+            };
+            me.refreshQueryBox_Filter(bounds);
+          }
+          d3.event.stopPropagation();
+          d3.event.preventDefault();
+        });
+
+      this.DOM.recordGroupHolder.call(this.scatterZoom);
+
+      this.DOM.recordGroup_Scatter = this.DOM.recordGroupHolder.append("div").attr("class","recordGroup_Scatter");
+
+      var _svg = this.DOM.recordGroup_Scatter.append("svg").attr("xmlns","http://www.w3.org/2000/svg")
+        .attr("class","asdasdasdsadas");
+
+      if(this.linkBy.length>0){
+        this.DOM.linkGroup = _svg.append("g").attr("class","linkGroup");
+        this.prepareRecordLinks();
+        this.insertDOM_RecordLinks();
+      }
+
+      this.DOM.recordGroup = _svg.append("g").attr("class","recordGroup");
+
+      this.insertQueryBoxes(this.DOM.recordGroup_Scatter,
+        function(t){
+          if(d3.event.which !== 1) return; // only respond to left-click
+          me.DOM.recordDisplayWrapper.attr("dragging",true);
+          var mousePos = d3.mouse(me.DOM.recordGroupHolder.node())
+          var newPos = [
+            me.scatterAxisScale_X.invert(mousePos[0]), 
+            me.scatterAxisScale_Y.invert(mousePos[1])
+          ];
+          var bounds = {
+            left:   me.scatterAttrib.summaryFilter.active.min,
+            right:  me.scatterAttrib.summaryFilter.active.max,
+            top:    me.sortingOpt_Active.summaryFilter.active.max,
+            bottom: me.sortingOpt_Active.summaryFilter.active.min
+          };
+          d3.select("body").on("mousemove", function(e){
+            var mousePos = d3.mouse(me.DOM.recordGroupHolder.node())
+            var targetPos = [
+              me.scatterAxisScale_X.invert(mousePos[0]), 
+              me.scatterAxisScale_Y.invert(mousePos[1])
+            ];
+            if(t==='l'){
+              me.scatterAttrib.setRangeFilter(targetPos[0], me.scatterAttrib.summaryFilter.active.max, true);
+              bounds.left = targetPos[0];
+            }
+            if(t==='r'){
+              me.scatterAttrib.setRangeFilter(me.scatterAttrib.summaryFilter.active.min, targetPos[0], true);
+              bounds.right = targetPos[0];
+            }
+            if(t==='t'){
+              me.sortingOpt_Active.setRangeFilter(me.sortingOpt_Active.summaryFilter.active.min, targetPos[1], true);
+              bounds.top = targetPos[1];
+            }
+            if(t==='b'){
+              me.sortingOpt_Active.setRangeFilter(targetPos[1], me.sortingOpt_Active.summaryFilter.active.max, true);
+              bounds.bottom = targetPos[1];
+            }
+            me.refreshQueryBox_Filter(bounds);
+          }).on("mouseup", function(){
+            // update range filter
+            me.DOM.recordDisplayWrapper.attr("dragging",null);
+            d3.select("body").on("mousemove",null).on("mouseup",null);
+          });
+          d3.event.preventDefault();
+          d3.event.stopPropagation();
+        },
+        function(t){
+          if(d3.event.which !== 1) return; // only respond to left-click
+          me.DOM.recordDisplayWrapper.attr("dragging",true);
+          var mousePos = d3.mouse(me.DOM.recordGroupHolder.node())
+          var initPos = [
+            me.scatterAttrib    .valueScale( me.scatterAxisScale_X.invert(mousePos[0]) ), 
+            me.sortingOpt_Active.valueScale( me.scatterAxisScale_Y.invert(mousePos[1]) )
+          ];
+          var initMin_X = me.scatterAttrib.summaryFilter.active.min;
+          var initMax_X = me.scatterAttrib.summaryFilter.active.max;
+          var initMin_Y = me.sortingOpt_Active.summaryFilter.active.min;
+          var initMax_Y = me.sortingOpt_Active.summaryFilter.active.max;
+          d3.select("body").on("mousemove", function(e){
+            var mousePos = d3.mouse(me.DOM.recordGroupHolder.node())
+            var curPos = [
+              me.scatterAttrib    .valueScale( me.scatterAxisScale_X.invert(mousePos[0]) ), 
+              me.sortingOpt_Active.valueScale( me.scatterAxisScale_Y.invert(mousePos[1]) )
+            ];
+            me.scatterAttrib.dragRange(initPos[0],curPos[0], initMin_X, initMax_X);
+            me.sortingOpt_Active.dragRange(initPos[1],curPos[1], initMin_Y, initMax_Y);
+            var bounds = {
+              left:   me.scatterAttrib.summaryFilter.active.min,
+              right:  me.scatterAttrib.summaryFilter.active.max,
+              top:    me.sortingOpt_Active.summaryFilter.active.max,
+              bottom: me.sortingOpt_Active.summaryFilter.active.min
+            };
+            me.refreshQueryBox_Filter(bounds);
+          }).on("mouseup", function(){
+            me.DOM.recordDisplayWrapper.attr("dragging",null);
+            d3.select("body").on("mousemove",null).on("mouseup",null);
+          });
+          d3.event.preventDefault();
+          d3.event.stopPropagation();
+        },
+        function(d){
+          if(d==="Filter"){
+            me.scatterAttrib.summaryFilter.clearFilter();
+            me.sortingOpt_Active.summaryFilter.clearFilter();
+          } else if(d!=="Highlight"){ // Compare_X
+            me.browser.clearSelect_Compare(d.substr(8));
+          }
+          this.tipsy.hide();
+        }
+      );
+
+      this.initDOM_CustomControls();
+    },
+    /** -- */
+    insertQueryBoxes: function(parent, setSizeCb, dragCb, clearCb){
+      var me=this;
+      var queryBoxes = parent.selectAll(".spatialQueryBox")
+        .data(["Filter","Highlight","Compare_A","Compare_B","Compare_C"])
+        .enter()
+          .append("div").attr("class", function(d){ return "spatialQueryBox spatialQueryBox_"+d; });
+
+      queryBoxes.selectAll(".setSize").data(['l','r','t','b'])
+        .enter().append("div").attr("class",function(k){ return "setSize-"+k;})
+          .on("mousedown", setSizeCb);
+
+      queryBoxes.append("div").attr("class","dragSelection fa fa-arrows")
+        .each(function(){ this.tipsy = new Tipsy(this, {gravity: 'se', title: "Drag" }); })
+        .on("mouseenter", function(){ this.tipsy.show(); })
+        .on("mouseleave", function(){ this.tipsy.hide(); })
+        .on("mousedown", dragCb);
+
+      queryBoxes.append("div").attr("class","clearFilterButton fa")
+        .each(function(d){ 
+          this.tipsy = new Tipsy(this, {gravity: 'nw', 
+            title: (d==="Filter") ? kshf.lang.cur.RemoveFilter : kshf.lang.cur.Unlock
+          });
+        })
+        .on("mouseenter", function(){ this.tipsy.show(); })
+        .on("mouseleave", function(){ this.tipsy.hide(); })
+        .on("mouseup",function(){
+          if(me.drawSelect) return;
+          d3.event.stopPropagation();
+          d3.event.preventDefault();
+        })
+        .on("mousedown",function(){
+          if(me.drawSelect) return;
+          d3.event.stopPropagation();
+          d3.event.preventDefault();
+        })
+        .on("click", clearCb);
     },
     /** -- */
     initDOM_NodeLinkView: function(){
       var me = this;
 
-      if(this.DOM.recordNodeLink_SVG) {
-        this.DOM.recordGroup = this.DOM.recordNodeLink_SVG.select(".recordGroup");
+      if(this.DOM.recordBase_NodeLink) {
+        this.DOM.recordGroup = this.DOM.recordBase_NodeLink.select(".recordGroup");
         this.DOM.kshfRecords = this.DOM.recordGroup.selectAll(".kshfRecord");
+        this.DOM.linkGroup   = this.DOM.recordBase_NodeLink.select(".linkGroup");
         return; // Do not initialize twice
       }
 
-      this.initDOM_NodeLinkView_Settings();
-
-      this.nodeZoomBehavior = d3.behavior.zoom()
-        .scaleExtent([0.5, 8])
+      this.nodeZoomBehavior = d3.zoom()
+        .scaleExtent([0.1, 80])
+        .on("start",function(){
+          me.DOM.recordDisplayWrapper.attr("dragging",true);
+        })
+        .on("end",function(){
+          me.DOM.recordDisplayWrapper.attr("dragging",null);
+        })
         .on("zoom", function(){
-          gggg.attr("transform", "translate(" + d3.event.translate + ")scale(" + d3.event.scale + ")");
-          me.refreshNodeVis();
+          gggg.attr("transform", 
+            "translate(" + d3.event.transform.x + "," + d3.event.transform.y+ ") "+
+            "scale(" + d3.event.transform.k + ")");
+          me.refreshNodeLinkVis();
         });
 
-      this.DOM.recordNodeLink_SVG = this.DOM.recordDisplayWrapper
-        .append("svg").attr("xmlns","http://www.w3.org/2000/svg").attr("class","recordNodeLink_SVG")
+      this.DOM.recordBase_NodeLink = this.DOM.recordDisplayWrapper
+        .append("svg").attr("xmlns","http://www.w3.org/2000/svg").attr("class","recordBase_NodeLink")
         .call(this.nodeZoomBehavior);
 
-      var gggg = this.DOM.recordNodeLink_SVG.append("g");
+      var gggg = this.DOM.recordBase_NodeLink.append("g");
       this.DOM.linkGroup   = gggg.append("g").attr("class","linkGroup");
-      this.DOM.recordGroup = gggg.append("g").attr("class","recordGroup recordGroup_Node");
+      this.DOM.recordGroup = gggg.append("g").attr("class","recordGroup");
 
-      this.DOM.NodeLinkControl = this.DOM.recordDisplayWrapper.append("span").attr("class","NodeLinkControl");
-
-      var animationControl = this.DOM.NodeLinkControl.append("span").attr("class","animationControl");
-
-      animationControl.append("span").attr("class","NodeLinkAnim_Play fa fa-play")
-        .on("click",function(){ 
-          me.nodelink_Force.start(); 
-          me.DOM.root.attr("hideLinks",true);
-        });
-      animationControl.append("span").attr("class","NodeLinkAnim_Pause fa fa-pause")
-        .on("click",function(){ 
-          me.nodelink_Force.stop();
-          me.DOM.root.attr("hideLinks",null);
-        });
-      this.DOM.NodeLinkAnim_Refresh = this.DOM.NodeLinkControl.append("span")
-        .attr("class","NodeLinkAnim_Refresh fa fa-refresh")
-        .on("click",function(){ 
-          me.refreshNodeLinks();
-          this.style.display = null;
-        });
+      this.initDOM_CustomControls();
     },
     /** -- */
     initDOM_ListView: function(){
@@ -1545,10 +2802,10 @@ kshf.RecordDisplay.prototype = {
       this.DOM.recordGroup = this.DOM.recordGroup_List.append("div").attr("class","recordGroup")
         .on("scroll",function(d){
           if(this.scrollHeight-this.scrollTop-this.offsetHeight<10){
-            if(me.autoExpandMore===false){
-              me.DOM.showMore.attr("showMoreVisible",true);
+            if(me.autoExpandMore){
+              me.showMoreRecordsOnList();
             } else {
-              me.showMoreRecordsOnList(); // automatically add more records
+              me.DOM.showMore.attr("showMoreVisible",true);
             }
           } else {
             me.DOM.showMore.attr("showMoreVisible",false);
@@ -1593,275 +2850,6 @@ kshf.RecordDisplay.prototype = {
       this.DOM.showMore.append("span").attr("class","loading_dots loading_dots_3");
     },
     /** -- */
-    initDOM_RecordViewHeader: function(){
-      var me=this;
-
-      this.DOM.recordColorScaleBins =  this.DOM.recordDisplayHeader.append("div").attr("class","recordColorScale")
-        .each(function(){ this.tipsy = new Tipsy(this, {gravity: 'w', title: "Change color scale"}); })
-        .on("mouseover",function(){ this.tipsy.show(); })
-        .on("mouseout" ,function(){ this.tipsy.hide(); })
-        .on("click"    ,function(){
-          me.browser.mapColorTheme = (me.browser.mapColorTheme==="converge") ? "diverge" : "converge";
-          me.refreshRecordColors();
-          me.map_refreshColorScaleBins();
-          me.sortingOpt_Active.map_refreshColorScale();
-        })
-        .selectAll(".recordColorScaleBin").data([0,1,2,3,4,5,6,7,8])
-          .enter().append("div").attr("class","recordColorScaleBin");
-      
-      this.map_refreshColorScaleBins();
-
-      this.DOM.itemRank_control = this.DOM.recordDisplayHeader.append("div").attr("class","itemRank_control fa")
-        .each(function(){
-          this.tipsy = new Tipsy(this, {gravity: 'n', 
-            title: function(){ return (me.showRank?"Hide":"Show")+" ranking"; }});
-        })
-        .on("mouseenter", function(){ this.tipsy.show(); })
-        .on("mouseleave", function(){ this.tipsy.hide(); })
-        .on("click",      function(){ this.tipsy.hide(); me.setShowRank(!me.showRank); });
-
-      this.initDOM_SortSelect();
-      this.initDOM_GlobalTextSearch();
-
-      this.DOM.buttonRecordViewRemove = this.DOM.recordDisplayHeader.append("div")
-        .attr("class","buttonRecordViewRemove fa fa-times")
-        .each(function(){ this.tipsy = new Tipsy(this, {gravity: 'ne', title: kshf.lang.cur.RemoveRecords }); })
-        .on("mouseenter", function(){ this.tipsy.show(); })
-        .on("mouseleave", function(){ this.tipsy.hide(); })
-        .on("click",      function(){ this.tipsy.hide(); me.removeRecordViewSummary(); });
-
-      var x= this.DOM.recordDisplayHeader.append("span");
-      x.append("span").text("View: ").attr("class","recordView_HeaderSet");
-      x.selectAll("span.fa").data([
-        {v:'Map', i:"globe"},
-        {v:'List', i:"list-ul"},
-        {v:'NodeLink', i:"share-alt"} ]
-      ).enter()
-        .append("span").attr("class", function(d){ return "recordView_Set"+d.v+" fa fa-"+d.i; })
-        .each(function(d){ 
-          this.tipsy = new Tipsy(this, {gravity: 'ne', title: function(){ return "View as "+d.v; } }); 
-        })
-        .on("mouseenter", function(){ this.tipsy.show(); })
-        .on("mouseleave", function(){ this.tipsy.hide(); })
-        .on("click",      function(d){ this.tipsy.hide(); me.viewAs(d.v); });
-
-      this.DOM.scrollToTop = this.DOM.recordDisplayHeader.append("div").attr("class","scrollToTop fa fa-arrow-up")
-        .each(function(){ this.tipsy = new Tipsy(this, {gravity: 'e', title: kshf.lang.cur.ScrollToTop }); })
-        .on("mouseenter", function(){ this.tipsy.show(); })
-        .on("mouseleave", function(){ this.tipsy.hide(); })
-        .on("click",      function(){ this.tipsy.hide(); kshf.Util.scrollToPos_do(me.DOM.recordGroup,0); });
-    },
-    /** -- */
-    setSpatialFilter: function(){
-      var me=this;
-
-      this.spatialFilter = this.browser.createFilter({
-        summary: this.recordViewSummary,
-        onClear: function(){
-          me.DOM.root.select(".spatialQueryBox_Filter").attr("active",null);
-        },
-        filterView_Detail: function(){
-          return "<i class='fa fa-square-o'></i>";
-        },
-        onFilter: function(){
-          me.DOM.root.select(".spatialQueryBox_Filter").attr("active",true);
-          me.browser.records.forEach(function(record){
-            if(record._geoBound_ === undefined) {
-              record.setFilterCache(this.filterID, false);
-              return;
-            }
-            record.setFilterCache(this.filterID, kshf.intersects(record._geoBound_, this.bounds));
-          },this);
-        }
-      });
-    },
-    /** -- */
-    setTextFilter: function(){
-      var me=this;
-
-      this.textFilter = this.browser.createFilter({
-        summary: me.textSearchSummary,
-        title: function(){ return me.textSearchSummary.summaryName; }, 
-        onClear: function(){
-          me.DOM.recordTextSearch.select(".clearSearchText").style('display','none');
-          me.DOM.recordTextSearch.selectAll(".textSearchMode").style("display","none"); 
-          me.DOM.recordTextSearch.select("input")[0][0].value = "";
-        },
-        filterView_Detail: function(){
-          return "*"+this.filterStr+"*";
-        },
-        onFilter: function(){
-          me.DOM.recordTextSearch.select(".clearSearchText").style('display','inline-block');
-          me.DOM.recordTextSearch.selectAll(".textSearchMode").style("display",
-            this.filterQuery.length>1?"inline-block":"none"); 
-
-          // go over all the records in the list, search each keyword separately
-          // If some search matches, return true (any function)
-          var summaryFunc = me.textSearchSummary.summaryFunc;
-          me.browser.records.forEach(function(record){
-            var f;
-            if(me.textFilter.multiMode==='or') 
-              f = ! this.filterQuery.every(function(v_i){
-                var v = summaryFunc.call(record.data,record);
-                if(v===null || v===undefined) return true;
-                return (""+v).toLowerCase().indexOf(v_i)===-1;
-              });
-            if(me.textFilter.multiMode==='and')
-              f = this.filterQuery.every(function(v_i){
-                var v = summaryFunc.call(record.data,record);
-                return (""+v).toLowerCase().indexOf(v_i)!==-1;
-              });
-            record.setFilterCache(this.filterID,f);
-          },this);
-        },
-      });
-      this.textFilter.multiMode = 'and';
-    },
-    /** -- */
-    initDOM_GlobalTextSearch: function(){
-      var me=this;
-
-      this.DOM.recordTextSearch = this.DOM.recordDisplayHeader.append("span").attr("class","recordTextSearch");
-
-      var x= this.DOM.recordTextSearch.append("div").attr("class","dropZone_textSearch")
-        .on("mouseenter",function(){ this.style.backgroundColor = "rgb(255, 188, 163)"; })
-        .on("mouseleave",function(){ this.style.backgroundColor = ""; })
-        .on("mouseup"   ,function(){ me.setTextSearchSummary(me.movedSummary); });
-      x.append("div").attr("class","dropZone_textSearch_text").text("Text search");
-
-      var processKeyEvent = function(dom){
-        me.textFilter.filterStr = dom.value.toLowerCase();
-
-        // convert string to query pieces
-        me.textFilter.filterQuery = [];
-        if(me.textFilter.filterStr!=="") {
-          // split the input by " character
-          me.textFilter.filterStr.split('"').forEach(function(block,i){
-            if(i%2===0) {
-              block.split(/\s+/).forEach(function(q){ me.textFilter.filterQuery.push(q)});
-            } else {
-              me.textFilter.filterQuery.push(block);
-            }
-          });
-          // Remove the empty strings
-          me.textFilter.filterQuery = me.textFilter.filterQuery.filter(function(v){ return v!==""});
-        }
-        
-        // Enter pressed
-        if(event.key=== 'Enter'){
-          dom.tipsy.hide();
-          if(d3.event.shiftKey) {
-            // Compare
-            if(me.textFilter.filterStr!=="") {
-              me.browser.setSelect_Compare();
-            } else {
-              me.textFilter.clearFilter();
-            }
-          } else {
-            // Filter
-            if(me.textFilter.filterStr!=="") {
-              me.textFilter.addFilter();
-            } else {
-              me.textFilter.clearFilter();
-            }
-          }
-          return;
-        }
-
-        if(dom.timer) clearTimeout(dom.timer);
-        dom.timer = setTimeout( function(){
-          if(me.textFilter.filterQuery.length==0){
-            dom.tipsy.hide();
-            me.browser.clearSelect_Highlight();
-            return;
-          }
-          dom.tipsy.show();
-          // Highlight selection
-          var summaryFunc = me.textSearchSummary.summaryFunc;
-          var records = [];
-          me.browser.records.forEach(function(record){
-            var f;
-            if(me.textFilter.multiMode==='or') 
-              f = ! me.textFilter.filterQuery.every(function(v_i){
-                var v = summaryFunc.call(record.data,record);
-                if(v===null || v===undefined) return true;
-                return (""+v).toLowerCase().indexOf(v_i)===-1;
-              });
-            if(me.textFilter.multiMode==='and')
-              f = me.textFilter.filterQuery.every(function(v_i){
-                var v = summaryFunc.call(record.data,record);
-                return (""+v).toLowerCase().indexOf(v_i)!==-1;
-              });
-            if(f) records.push(record);
-          });
-          me.browser.clearSelect_Highlight();
-          me.browser.flexAggr_Highlight.records = records;
-          me.browser.flexAggr_Highlight.summary = me.recordViewSummary;
-          me.browser.setSelect_Highlight();
-          dom.timer = null;
-        }, 200);
-      };
-
-      this.DOM.recordTextSearch.append("i").attr("class","fa fa-search searchIcon");
-      this.DOM.recordTextSearch.append("input").attr("type","text").attr("class","textSearchInput")
-        .each(function(){ 
-          this.tipsy = new Tipsy(this, {gravity: 'n', 
-            title: '<b><u>Enter</u></b> to filter <i class="fa fa-filter"></i>.<br><br>'+
-            '<b><u>Shift+Enter</u></b> to lock <i class="fa fa-lock"></i>.' }); 
-        })
-        .on("blur",function(){ this.tipsy.hide(); })
-        .on("keydown",function() { d3.event.stopPropagation(); })
-        .on("keypress",function(){ d3.event.stopPropagation(); })
-        .on("keyup",function(){
-          processKeyEvent(this);
-          d3.event.stopPropagation();
-        });
-      this.DOM.recordTextSearch.append("span").attr("class","fa fa-times-circle clearSearchText")
-        .attr("mode","and")
-        .each(function(){ this.tipsy = new Tipsy(this, {gravity: 'ne', title: kshf.lang.cur.RemoveFilter }); })
-        .on("mouseenter", function(){ this.tipsy.show(); })
-        .on("mouseleave", function(){ this.tipsy.hide(); })
-        .on("click",      function(){ this.tipsy.hide(); me.textFilter.clearFilter(); });
-      
-      this.DOM.recordTextSearch.selectAll(".textSearchMode").data(["and","or"]).enter()
-        .append("span")
-          .attr("class","textSearchMode")
-          .attr("mode",function(d){return d;})
-          .each(function(d){ 
-            this.tipsy = new Tipsy(this, {
-              gravity: 'ne', 
-              title: (d==="and") ? "All words<br> must appear." : "At least one word<br> must appear." });
-          })
-          .on("mouseenter", function(){ this.tipsy.show(); })
-          .on("mouseleave", function(){ this.tipsy.hide(); })
-          .on("click",    function(d) { this.tipsy.hide();
-            me.DOM.recordTextSearch.attr("mode",d);
-            me.textFilter.multiMode = d;
-            me.textFilter.addFilter();
-          });
-    },
-    /** -- */
-    initDOM_NodeLinkView_Settings: function(){
-      var me=this;
-
-      this.DOM.NodeLinkAttrib = this.DOM.recordDisplayHeader.append("span").attr("class","NodeLinkAttrib");
-
-      this.DOM.NodeLinkAttrib.append("span").attr("class","fa fa-share-alt NodeLinkAttribIcon")
-        .each(function(d){ this.tipsy = new Tipsy(this, { gravity: 'e',  title: "Show/Hide Links" }); })
-        .on("mouseenter", function(){ this.tipsy.show(); })
-        .on("mouseleave", function(){ this.tipsy.hide(); })
-        .on("click",      function(){ this.tipsy.hide();
-          me.DOM.root.attr("hideLinks", me.DOM.root.attr("hideLinks")?null:true ); });
-
-      var s = this.DOM.NodeLinkAttrib.append("select")
-        .on("change",function(){
-          var s = this.selectedOptions[0].__data__;
-          // TODO: change the network calculation
-        });;
-
-      s.selectAll("option").data(this.config.linkBy).enter().append("option").text(function(d){ return d; });
-    },
-    /** -- */
     setRecordViewSummary: function(summary){
       if(summary===undefined || summary===null) {
         this.removeRecordViewSummary();
@@ -1872,8 +2860,11 @@ kshf.RecordDisplay.prototype = {
 
       this.DOM.root.attr('hasRecordView',true);
       this.recordViewSummary = summary;
+      this.recordViewSummary.initializeAggregates();
       this.recordViewSummary.isRecordView = true;
-      this.recordViewSummary.refreshNuggetDisplay();
+      this.recordViewSummary.refreshThumbDisplay();
+
+      this.setRecordViewBriefSummary(summary);
       
       if(this.spatialFilter){
         this.spatialFilter.summary = this.recordViewSummary;
@@ -1881,40 +2872,82 @@ kshf.RecordDisplay.prototype = {
       }
 
       // TODO: Delete existing record DOM's and regenerate them
-      this.DOM.recordGroup.selectAll(".kshfRecord").data([]).exit().remove();
+      if(this.DOM.recordGroup)
+        this.DOM.recordGroup.selectAll(".kshfRecord").data([]).exit().remove();
 
-      if(this.displayType==='list' || this.displayType==="grid"){
-        this.sortRecords();
-        this.refreshRecordDOM();
-        this.setSortColumnWidth(this.config.sortColWidth);
-      } else if(this.displayType==='map'){
-        this.refreshRecordDOM();
-      } else if(this.displayType==='nodelink'){
-        this.setNodeLink();
-        this.refreshRecordDOM();
-      }
-
-      this.browser.DOM.root.attr("recordDisplayMapping",this.getRecordEncoding()); // "sort" or "color"
+      this.viewAs(this.viewRecAs);
+    },
+    /** -- */
+    setRecordViewBriefSummary: function(summary){
+      this.recordViewSummaryBrief = summary;
+      this.recordViewSummaryBrief.initializeAggregates();
     },
     /** -- */
     removeRecordViewSummary: function(){
       if(this.recordViewSummary===null) return;
-      this.DOM.root.attr("hasRecordView",false);
+      this.DOM.root.attr("hasRecordView",null);
       this.recordViewSummary.isRecordView = false;
-      this.recordViewSummary.refreshNuggetDisplay();
+      this.recordViewSummary.refreshThumbDisplay();
       this.recordViewSummary = null;
-      this.browser.DOM.root.attr("recordDisplayMapping",null);
+      this.browser.DOM.root.attr("recordEncoding",null);
     },
     /** -- */
     setTextSearchSummary: function(summary){
       if(summary===undefined || summary===null) return;
       this.textSearchSummary = summary;
+      this.textSearchSummary.initializeAggregates();
       this.textSearchSummary.isTextSearch = true;
       this.DOM.recordTextSearch
         .attr("isActive",true)
         .select("input").attr("placeholder", kshf.lang.cur.Search+": "+summary.summaryName);
-      this.setTextFilter();
+      this.textFilter = this.browser.createFilter('text',this);
       this.textSearchSummary.summaryFilter = this.textFilter;
+    },
+    /** -- */
+    collapseRecordViewSummary: function(collapsed){
+      this.collapsed = collapsed;
+      this.DOM.root.attr("collapsed",collapsed?true:null);
+      this.browser.updateLayout_Height();
+    },
+    /** -- */
+    refreshRecordRanks: function(d3_selection){
+      if(!this.showRank) return; // Do not refresh if not shown...
+      d3_selection.text(function(record){ return (record.recordRank<0)?"":record.recordRank+1; });
+    },
+    /** -- */
+    refreshRecordDOMOrder: function(){
+      this.DOM.kshfRecords = this.DOM.recordGroup.selectAll(".kshfRecord")
+        .data(this.browser.records, function(record){ return record.id(); })
+        .order();
+      kshf.Util.scrollToPos_do(this.DOM.recordGroup,0);
+    },
+    /** -- */
+    refreshViz_Compare_All: function(){
+      var me=this;
+      this.DOM.root.selectAll("[class*='spatialQueryBox_Comp']")
+        .attr("active", function(d){ return me.browser.vizActive[d] ? true : null; });
+    },
+    /** -- */
+    setSortColumnWidth: function(v){
+      if(this.viewRecAs!=='list') return;
+      this.sortColWidth = Math.max(Math.min(v,110),30); // between 30 and 110 pixels
+      this.DOM.recordSortValue.style("width",this.sortColWidth+"px");
+      this.refreshAdjustSortColumnWidth();
+    },
+    /** -- */
+    getSortingLabel: function(record){
+      var s = this.sortingOpt_Active.sortLabel.call(record.data,record);
+      if(s===null || s===undefined) return "";
+      if(typeof s!=="string") s = this.sortColFormat(s);
+      return this.sortingOpt_Active.printWithUnitName(s);
+    },
+    /** -- */
+    refreshRecordSortLabels: function(d3_selection){
+      if(this.viewRecAs!=='list') return; // Only list-view allows sorting
+      if(d3_selection===undefined) d3_selection = this.DOM.recordSortValue;
+
+      var me=this;
+      d3_selection.html(function(record){ return me.getSortingLabel(record); });
     },
     /** -- */
     addSortingOption: function(summary){
@@ -1931,81 +2964,29 @@ kshf.RecordDisplay.prototype = {
       this.refreshSortingOptions();
     },
     /** -- */
-    initDOM_SortSelect: function(){
-      var me=this;
-
-      this.DOM.header_listSortColumn = this.DOM.recordDisplayHeader.append("div").attr("class","header_listSortColumn");
-
-      this.DOM.listSortOptionSelect = this.DOM.header_listSortColumn.append("select")
-        .attr("class","listSortOptionSelect")
-        .on("change", function(){ me.setSortingOpt_Active(this.selectedIndex); });
-
-      this.refreshSortingOptions();
-
-      this.DOM.recordSortButton = this.DOM.recordDisplayHeader.append("span")
-        .attr("class","recordSortButton sortButton fa")
-        .each(function(){ this.tipsy = new Tipsy(this, { gravity: 'w', title: kshf.lang.cur.ReverseOrder }); })
-        .on("mouseenter", function(){ this.tipsy.show(); })
-        .on("mouseleave", function(){ this.tipsy.hide(); })
-        .on("click",function(){
-          this.tipsy.hide();
-          // NOTE: Only on list/grid views
-          me.sortingOpt_Active.inverse = me.sortingOpt_Active.inverse?false:true;
-          this.setAttribute("inverse",me.sortingOpt_Active.inverse);
-          // TODO: Do not show no-value items on top, reversing needs to be a little smarter.
-          me.browser.records.reverse();
-
-          me.updateRecordRanks();
-          me.refreshRecordDOM();
-          me.refreshRecordRanks(me.DOM.recordRanks);
-
-          me.DOM.kshfRecords = me.DOM.recordGroup.selectAll(".kshfRecord")
-            .data(me.browser.records, function(record){ return record.id(); })
-            .order();
-          kshf.Util.scrollToPos_do(me.DOM.recordGroup,0);
-        });
-    },
-    /** -- */
-    refreshRecordRanks: function(d3_selection){
-      if(!this.showRank) return; // Do not refresh if not shown...
-      d3_selection.text(function(record){ return (record.recordRank<0)?"":record.recordRank+1; });
-    },
-    /** -- */
-    setSortColumnWidth: function(v){
-      if(this.displayType!=='list') return;
-      this.sortColWidth = Math.max(Math.min(v,110),30); // between 30 and 110 pixels
-      this.DOM.recordSortCol.style("width",this.sortColWidth+"px");
-      this.refreshAdjustSortColumnWidth();
-    },
-    /** -- */
-    getSortingLabel: function(d){
-      var s = this.sortingOpt_Active.sortLabel.call(d.data,d);
-      if(s===null || s===undefined) return "";
-      if(typeof s!=="string") s = this.sortColFormat(s);
-      return this.sortingOpt_Active.printWithUnitName(s);
-    },
-    /** -- */
-    refreshRecordSortLabels: function(d3_selection){
-      if(this.displayType!=='list') return; // Only list-view allows sorting
-      if(d3_selection===undefined) d3_selection = this.DOM.recordSortCol;
-
-      var me=this;
-      d3_selection.html(function(d){ return me.getSortingLabel(d); });
+    refreshScatterOptions: function(){
+      if(this.DOM.root===undefined) return;
+      this.DOM.root.selectAll(".ScatterControl-ScatterAttrib > select > option").remove();
+      this.DOM.root.selectAll(".ScatterControl-ScatterAttrib > select").selectAll("option")
+        .data(this.getScatterAttributes()).enter()
+          .append("option")
+            .text(function(summary){ return summary.summaryName; })
+            .attr("selected",function(summary){ return summary.encodesRecordsBy==='scatter'?true:null; });
     },
     /** -- */
     refreshSortingOptions: function(){
-      if(this.DOM.listSortOptionSelect===undefined) return;
-      this.DOM.listSortOptionSelect.selectAll("option").remove();
+      if(this.DOM.recordSortSelectbox===undefined) return;
+      this.DOM.recordSortSelectbox.selectAll("option").remove();
       var me=this;
-      var x = this.DOM.listSortOptionSelect.selectAll("option").data(this.sortingOpts);
-      x.enter().append("option").html(function(summary){ return summary.summaryName; })
-      x.exit().each(function(summary){ summary.sortingSummary = false; });
-      this.sortingOpts.forEach(function(summary, i){
-        if(summary===me.sortingOpt_Active) {
-          var DOM = me.DOM.listSortOptionSelect[0][0];
-          DOM.selectedIndex = i;
-        }
-      });
+      var scatterID = -1;
+      if(this.scatterAttrib) scatterID = this.scatterAttrib.summaryID;
+      this.DOM.recordSortSelectbox.selectAll("option").data(
+        this.sortingOpts.filter(function(summary){ return summary.summaryID !== scatterID; })
+      ).enter()
+        .append("option")
+          .html(function(summary){ return summary.summaryName; })
+          .attr("selected",function(summary){ return summary.encodesRecordsBy==='sort'?true:null; });
+      this.refreshScatterOptions();
     },
     /** -- */
     prepSortingOpts: function(){
@@ -2034,6 +3015,9 @@ kshf.RecordDisplay.prototype = {
 
         this.sortingOpts[i] = summary;
       },this);
+
+      // Only interval summaries can be used as sorting options
+      this.sortingOpts = this.sortingOpts.filter(function(s){ return s instanceof kshf.Summary_Interval; });
     },
     /** -- */
     alphabetizeSortingOptions: function(){
@@ -2042,10 +3026,20 @@ kshf.RecordDisplay.prototype = {
       });
     },
     /** -- */
+    setScatterAttrib: function(attrib){
+      if(this.scatterAttrib) {
+        this.scatterAttrib.clearEncodesRecordsBy();
+      }
+      this.scatterAttrib = attrib;
+      this.scatterAttrib.setEncodesRecordsBy("scatter");
+      this.refreshScatterVis(true);
+      this.refreshSortingOptions();
+    },
+    /** -- */
     setSortingOpt_Active: function(index){
       if(this.sortingOpt_Active){
         var curHeight = this.sortingOpt_Active.getHeight();
-        this.sortingOpt_Active.clearAsRecordSorting();
+        this.sortingOpt_Active.clearEncodesRecordsBy();
         this.sortingOpt_Active.setHeight(curHeight);
       }
       
@@ -2060,7 +3054,7 @@ kshf.RecordDisplay.prototype = {
 
       {
         var curHeight = this.sortingOpt_Active.getHeight();
-        this.sortingOpt_Active.setAsRecordSorting();
+        this.sortingOpt_Active.setEncodesRecordsBy("sort");
         this.sortingOpt_Active.setHeight(curHeight);
       }
 
@@ -2074,26 +3068,30 @@ kshf.RecordDisplay.prototype = {
       if(this.recordViewSummary===null) return;
 
       if(this.DOM.root===undefined) return;
-      if(this.displayType==='map' || this.displayType==='nodelink'){
-        this.refreshRecordColors();
-      } else {
-        this.sortRecords();
-        if(this.DOM.recordGroup===undefined) return;
-
-        this.refreshRecordDOM();
-        this.refreshRecordRanks(this.DOM.recordRanks);
-        kshf.Util.scrollToPos_do(this.DOM.recordGroup,0);
-
-        this.DOM.kshfRecords = this.DOM.recordGroup.selectAll(".kshfRecord")
-          .data(this.browser.records, function(record){ return record.id(); })
-          .order();
-
-        this.refreshRecordSortLabels();
+      switch(this.viewRecAs){
+        case 'map':
+        case 'nodelink':
+          this.refreshRecordColors();
+          break;
+        case 'scatter':
+          this.refreshSortingOptions();
+          this.refreshScatterVis(true);
+          break;
+        case 'list':
+        case 'grid':
+          this.sortRecords();
+          if(this.DOM.recordGroup) {
+            this.refreshRecordDOM();
+            this.refreshRecordDOMOrder();
+            this.refreshRecordRanks(this.DOM.recordRanks);
+            this.refreshRecordSortLabels();
+          }
+          break;
       }
     },
     /** -- */
     refreshAdjustSortColumnWidth: function(){
-      if(this.displayType!=='list') return;
+      if(this.viewRecAs!=='list') return;
       this.DOM.adjustSortColumnWidth.style("left", (this.sortColWidth-2)+(this.showRank?15:0)+"px")
     },
     /** -- */
@@ -2104,75 +3102,215 @@ kshf.RecordDisplay.prototype = {
       this.refreshAdjustSortColumnWidth();
     },
     /** -- */
-    refreshNodeLinks: function(){
-      this.generateNodeLinks();
-      this.nodelink_nodes = this.browser.records.filter(function(record){ return record.isWanted; });
-
-      this.nodelink_Force
-        .nodes(this.nodelink_nodes)
-        .links(this.nodelink_links)
-        .start();
-
-      if(this.nodelink_links.length>1000) this.DOM.root.attr("hideLinks",true);
-    },
-    /** -- */
-    generateNodeLinks: function(){
-      this.nodelink_links = [];
-
-      var recordsIndexed = kshf.dt_id[browser.primaryTableName];
-      var linkAttribName = this.config.linkBy[0];
-
-      this.browser.records.forEach(function(recordFrom){
-        if(!recordFrom.isWanted) return;
-        var links = recordFrom.data[linkAttribName];
-        if(links) {
-          links.forEach(function(recordTo_id){
-            var recordTo = recordsIndexed[recordTo_id];
-            if(recordTo) {
-              if(!recordTo.isWanted) return;
-              this.nodelink_links.push({source:recordFrom, target: recordTo});
-            }
-          },this);
-        }
-      },this);
-    },
-    /** -- */
-    initializeNetwork: function(){
-      this.nodelink_Force.size([this.curWidth, this.curHeight]).start();
-      if(this.nodelink_links.length>1000) this.DOM.root.attr("hideLinks",true);
-
+    nodelink_restart: function(){
+      this.nodelink_Force.restart();
       this.DOM.root.attr("NodeLinkState","started");
+      if(this.recordLinks.length>1000) this.DOM.root.classed("hideLinks",true);
     },
-    refreshNodeVis: function(){
+    /** -- */
+    refreshVis_Nodes: function(){
+      var t = d3.zoomTransform(this.DOM.recordBase_NodeLink.node());
+      var scale = "scale("+(1/t.k)+")";
+      this.DOM.kshfRecords.attr("transform", function(d){ return "translate("+d.x+","+d.y+") "+scale; });
+    },
+    /** -- */
+    refreshScatterVis: function(animate){
+      if(this.DOM.recordBase_Scatter===undefined) return;
+      var me = this;
+      var scale = "scale("+(1/this.scatterTransform.z)+")";
+
+      var sX = this.scatterAttrib;
+      var sY = this.sortingOpt_Active;
+
+      var accX = sX.summaryID;
+      var accY = sY.summaryID;
+
+      this.scatterScaleX = sX.scaleType==='log' ? d3.scaleLog().base(2) : d3.scaleLinear();
+      this.scatterScaleX.domain([sX.intervalRange.active.min, sX.intervalRange.active.max])
+        .range([0, (this.curWidth-80)])
+        .clamp(false);
+
+      this.scatterScaleY = sY.scaleType==='log' ? d3.scaleLog().base(2) : d3.scaleLinear();
+      this.scatterScaleY.domain([sY.intervalRange.active.min, sY.intervalRange.active.max])
+        .range([(this.curHeight-80),0])
+        .clamp(false);
+
+      var x = this.DOM.kshfRecords;
+      if(animate) x = x.transition().duration(700).ease(d3.easeCubic);
+      x.attr("transform",function(record){
+        record.x = me.scatterScaleX(record._valueCache[accX]);
+        record.y = me.scatterScaleY(record._valueCache[accY]);
+        return "translate("+record.x+","+record.y+") "+scale;
+      });
+      this.refreshScatterTicks();
+
+      if(this.DOM.recordLinks){
+        // position & direction of the links
+        this.DOM.recordLinks
+          .attr("x1", function(link) { return link.source.x; })
+          .attr("y1", function(link) { return link.source.y; })
+          .attr("x2", function(link) { return link.target.x; })
+          .attr("y2", function(link) { return link.target.y; });
+        }
+    },
+    /** -- */
+    refreshScatterTicks: function(){
+      var me=this;
+
+      // Compute bounds in SVG coordinates after transform is applied.
+      var minX_real = (-this.scatterTransform.x)/this.scatterTransform.z;
+      var maxX_real = minX_real + (this.curWidth-35)/this.scatterTransform.z;
+      var minY_real = (-this.scatterTransform.y)/this.scatterTransform.z;
+      var maxY_real = minY_real + (this.curHeight-50)/this.scatterTransform.z;
+
+      var minX_v = this.scatterScaleX.invert(minX_real);
+      var maxX_v = this.scatterScaleX.invert(maxX_real);
+      var minY_v = this.scatterScaleY.invert(minY_real);
+      var maxY_v = this.scatterScaleY.invert(maxY_real);
+
+      var tGroup;
+      var hm=true;
+
+      if(this.scatterAxisScale_X){
+        this.scatterAxisScale_X_old = this.scatterAxisScale_X.copy();
+        this.scatterAxisScale_Y_old = this.scatterAxisScale_Y.copy();
+        hm=false;
+      }
+
+      this.scatterAxisScale_X = this.scatterScaleX.copy()
+        .domain([minX_v, maxX_v])
+        .range([0, this.curWidth-35]);
+      this.scatterAxisScale_Y = this.scatterScaleY.copy()
+        .domain([minY_v, maxY_v])
+        .range([0,this.curHeight-50]);
+
+      if(hm){
+        this.scatterAxisScale_X_old = this.scatterAxisScale_X.copy();
+        this.scatterAxisScale_Y_old = this.scatterAxisScale_Y.copy();
+      }
+      
+      var ticks ={}
+      ticks.X = this.scatterAxisScale_X.ticks(Math.floor((this.curWidth-40)/30) );
+      if(!this.scatterAttrib.hasFloat){
+        ticks.X = ticks.X.filter(function(t){ return t%1===0; });
+      }
+
+      ticks.Y = this.scatterAxisScale_Y.ticks(Math.floor((this.curHeight-50)/30) );
+      if(!this.sortingOpt_Active.hasFloat){
+        ticks.Y = ticks.Y.filter(function(t){ return t%1===0; });
+      }
+
+      // TODO: add translateZ to reduce redraw (but causes flickering on chrome)
+      var addTicks = function(axis, _translate){
+        var tGroup = me.DOM["scatterAxis_"+axis].select(".tickGroup");
+        var axisScale = me["scatterAxisScale_"+axis];
+        var axisScale_old = me["scatterAxisScale_"+axis+"_old"];
+
+        var hm = tGroup.selectAll(".hmTicks").data(ticks[axis], function(t){ return t; });
+        hm.style("transform", function(tick){ return _translate + axisScale(tick) + "px) translateZ(0)"; });
+        hm.exit()
+          .style("transform", function(tick){ return _translate + axisScale(tick) + "px) translateZ(0)"; })
+          .style("opacity",0).transition().duration(0).delay(500).remove();
+        var tk = hm.enter().append("div").attr("class","hmTicks")
+          .attr("zero",function(tick){ return tick===0?true:null})
+          .style("transform", function(tick){ return _translate + axisScale_old(tick) + "px) translateZ(0)"; });
+        tk.transition().duration(0).delay(10)
+          .style("transform", function(tick){ return _translate + axisScale(tick) + "px) translateZ(0)"; })
+          .style("opacity",1);
+        tk.append("div").attr("class","tickText");
+        tk.append("div").attr("class","tickLine");
+      };
+
+      addTicks("X","translateX(");
+      addTicks("Y","translateY(");
+
+      this.DOM.scatterAxis_X.selectAll(".tickText")
+        .html(function(tick){ 
+          return me.scatterAttrib.printWithUnitName(me.browser.getTickLabel(tick));
+        })
+      this.DOM.scatterAxis_Y.selectAll(".tickText")
+        .html(function(tick){ return me.sortingOpt_Active.printWithUnitName(me.browser.getTickLabel(tick)); })
+
+      this.refreshQueryBox_Filter();
+    },
+    /** -- */
+    refreshNodeLinkVis: function(){
       if(this.DOM.recordLinks===undefined) return;
 
-      // position & direction of the line
-      this.DOM.recordLinks.attr("x1", function(d) { return d.source.x; })
+      // position & direction of the links
+      this.DOM.recordLinks
+        .attr("x1", function(d) { return d.source.x; })
         .attr("y1", function(d) { return d.source.y; })
         .attr("x2", function(d) { return d.target.x; })
         .attr("y2", function(d) { return d.target.y; });
 
-      // position of the record
-      var scale = "scale("+(1/this.nodeZoomBehavior.scale())+")";
-      this.DOM.kshfRecords.attr("transform", function(d){
-        return "translate("+d.x+","+d.y+") "+scale;
-      });
+      this.refreshVis_Nodes();
     },
     /** -- */
-    setNodeLink: function(){
-      var me=this;
+    nodelink_zoomToActive: function(){
+      var _translate, _scale;
 
-      this.browser.records.forEach(function(record){
-        record.DOM.links_To = [];
-        record.DOM.links_From = [];
-        record.links_To = [];
-        record.links_From = [];
+      var bounds_x = [null,null];
+      var bounds_y = [null,null];
+
+      var grav_x = 0;
+      var grav_y = 0;
+
+      // compute rectangular bounding box of the nodes
+      var recs = this.browser.records.filter(function(record){ return record.isWanted; });
+      recs.forEach(function(d){
+        var _min_x = d.x-0.2;
+        var _max_x = d.x+0.2;
+        var _min_y = d.y-0.2;
+        var _max_y = d.y+0.2;
+
+        grav_x += d.x;
+        grav_y += d.y;
+
+        if(bounds_x[0]===null){
+          bounds_x = [_min_x, _max_x];
+          bounds_y = [_min_y, _max_y];
+        } else {
+          if(_min_x<bounds_x[0]) bounds_x[0] = _min_x;
+          if(_min_y<bounds_y[0]) bounds_y[0] = _min_y;
+          if(_max_x>bounds_x[1]) bounds_x[1] = _max_x;
+          if(_max_x>bounds_x[1]) bounds_x[1] = _max_x;
+        }
       });
 
-      this.nodelink_links = [];
+      var _translate = [ grav_x/recs.length , grav_y/recs.length ];
+
+      var x = this.DOM.recordDisplayWrapper.node();
+
+      var _scale = x.offsetHeight / ((bounds_y[1]-bounds_y[0])*3);
+
+      this.DOM.recordBase_NodeLink.transition().duration(750).call(
+        this.nodeZoomBehavior.transform,
+        d3.zoomIdentity
+          .translate( x.offsetWidth/2, x.offsetHeight/2)
+          .scale(_scale)
+      );
+
+      this.refreshNodeLinkVis();
+    },
+    /** -- */
+    _refreshNodeLinkSVG_Transform: function(){
+      var t = d3.zoomTransform(this.DOM.recordBase_NodeLink.node());
+      var _scale = t.k;
+      var _translate = [t.x, t.y];
+      this.DOM.recordBase_NodeLink.select(".gggg")
+        .attr("transform", "translate(" + _translate[0] + "," + _translate[1] + ") scale(" + _scale + ")");
+
+      this.refreshVis_Nodes();
+    },
+    /** -- */
+    prepareRecordLinks: function(){
+      this.browser.records.forEach(function(record){ record.initLinks(); });
 
       var recordsIndexed = kshf.dt_id[browser.primaryTableName];
-      var linkAttribName = this.config.linkBy[0];
+      var linkAttribName = this.linkBy[0];
+
+      this.recordLinks = [];
 
       this.browser.records.forEach(function(recordFrom){
         var links = recordFrom.data[linkAttribName];
@@ -2182,14 +3320,16 @@ kshf.RecordDisplay.prototype = {
             if(recordTo) {
               recordFrom.links_To.push(recordTo);
               recordTo.links_From.push(recordFrom);
+              this.recordLinks.push({source:recordFrom, target: recordTo});
             }
           },this);
         }
       },this);
-
-      this.generateNodeLinks();
-
-      this.DOM.recordLinks = this.DOM.linkGroup.selectAll(".recordLink").data(this.nodelink_links)
+    },
+    /** -- */
+    insertDOM_RecordLinks: function(){
+      this.DOM.linkGroup.selectAll(".recordLink").remove();
+      this.DOM.recordLinks = this.DOM.linkGroup.selectAll(".recordLink").data(this.recordLinks)
         .enter().append("line").attr("class", "recordLink")
         .each(function(link){
           var recordFrom = link.source;
@@ -2197,35 +3337,58 @@ kshf.RecordDisplay.prototype = {
           recordFrom.DOM.links_To.push(this);
           recordTo.DOM.links_From.push(this);
         });
+    },
+    /** -- */
+    setNodeLink: function(){
+      var me=this;
 
-      this.nodelink_Force = d3.layout.force()
-        .charge(-60)
-        .gravity(0.8)
-        .alpha(0.4)
-        .nodes(this.browser.records)
-        .links(this.nodelink_links)
-        .on("start",function(){ 
-          me.DOM.root.attr("NodeLinkState","started");
-          me.DOM.root.attr("hideLinks",true);
-        })
+      this.prepareRecordLinks();
+      this.insertDOM_RecordLinks();
+
+      this.nodelink_Force = d3.forceSimulation()
+        .force("charge", d3.forceManyBody().strength(-5))
+        .force("link", d3.forceLink(this.recordLinks).strength(0.05).iterations(3) )
+        .alphaMin(0.1)
+        .velocityDecay(0.3)
+        //.force("center", d3.forceCenter())
+        // Old params
+        //.charge(-60)
+        //.gravity(0.8)
+        //.alpha(0.4)
         .on("end",  function(){ 
           me.DOM.root.attr("NodeLinkState","stopped");
-          me.DOM.root.attr("hideLinks",null);
+          me.DOM.root.classed("hideLinks",null);
         })
-        .on("tick", function(){ me.refreshNodeVis(); });
+        .on("tick", function(){ 
+          me.refreshNodeLinkVis();
+        });
+
+      this.nodelink_Force.nodes(this.browser.records);
+    },
+    /** -- */ 
+    changeOfScale: function(){
+      if(this.viewRecAs!=='map' && this.viewRecAs!=='nodelink'){
+        this.refreshRecordColors();
+      }
+      if(this.viewRecAs==='scatter'){
+        this.refreshScatterVis(true);
+      }
     },
     /** -- */
     refreshRecordColors: function(){
       if(!this.recordViewSummary) return;
+      if(this.viewRecAs!=='map' && this.viewRecAs!=='nodelink') return;
+      if(!this.sortingOpt_Active) return;
+
       var me=this;
       var s_f  = this.sortingOpt_Active.summaryFunc;
       var s_log;
 
       if(this.sortingOpt_Active.scaleType==='log'){
-        this.recordColorScale = d3.scale.log();
+        this.recordColorScale = d3.scaleLog();
         s_log = true;
       } else {
-        this.recordColorScale = d3.scale.linear();
+        this.recordColorScale = d3.scaleLinear();
         s_log = false;
       }
       var min_v = this.sortingOpt_Active.intervalRange.total.min;
@@ -2240,11 +3403,11 @@ kshf.RecordDisplay.prototype = {
         .range([0, 9])
         .domain( [min_v, max_v] );
 
-      this.colorQuantize = d3.scale.quantize()
+      this.colorQuantize = d3.scaleQuantize()
         .domain([0,9])
         .range(kshf.colorScale[me.browser.mapColorTheme]);
 
-      var undefinedFill = (this.displayType==='map') ? "url(#diagonalHatch)" : "white";
+      var undefinedFill = (this.viewRecAs==='map') ? "url(#diagonalHatch)" : "white";
 
       var fillFunc = function(d){ 
         var v = s_f.call(d.data);
@@ -2255,7 +3418,7 @@ kshf.RecordDisplay.prototype = {
         return me.colorQuantize(vv); 
       };
 
-      if(this.displayType==='map') {
+      if(this.viewRecAs==='map') {
         this.DOM.kshfRecords.each(function(d){ 
           var v = s_f.call(d.data);
           if(s_log && v<=0) v=undefined;
@@ -2270,8 +3433,8 @@ kshf.RecordDisplay.prototype = {
           this.style.stroke = me.colorQuantize(vv>=5?0:9);
         });
       }
-      if(this.displayType==='nodelink') {
-        this.DOM.kshfRecords.selectAll("circle").style("fill", function(d){ 
+      if(this.viewRecAs==='nodelink') {
+        this.DOM.kshfRecords.style("fill", function(d){ 
           var v = s_f.call(d.data);
           if(s_log && v<=0) v=undefined;
           if(v===undefined) return undefinedFill;
@@ -2283,12 +3446,11 @@ kshf.RecordDisplay.prototype = {
     },
     /** -- */
     highlightLinked: function(recordFrom){
+      if(recordFrom.DOM.links_To===undefined) return;
       recordFrom.DOM.links_To.forEach(function(dom){
-        dom.style.stroke = "green";
-        dom.style.strokeOpacity = 1;
         dom.style.display = "block";
       });
-      var links = recordFrom.data[this.config.linkBy[0]];
+      var links = recordFrom.data[this.linkBy[0]];
       if(!links) return;
       var recordsIndexed = kshf.dt_id[browser.primaryTableName];
       links.forEach(function(recordTo_id){
@@ -2303,12 +3465,11 @@ kshf.RecordDisplay.prototype = {
     },
     /** -- */
     unhighlightLinked: function(recordFrom){
+      if(recordFrom.DOM.links_To===undefined) return;
       recordFrom.DOM.links_To.forEach(function(dom){
-        dom.style.stroke = null;
-        dom.style.strokeOpacity = null;
         dom.style.display = null;
       });
-      var links = recordFrom.data[this.config.linkBy[0]];
+      var links = recordFrom.data[this.linkBy[0]];
       if(!links) return;
       var recordsIndexed = kshf.dt_id[browser.primaryTableName];
       links.forEach(function(recordTo_id){
@@ -2321,10 +3482,49 @@ kshf.RecordDisplay.prototype = {
       },this);
     },
     /** -- */
+    onRecordMouseOver: function(record){
+      record.highlightRecord();
+      this.highlightLinked(record);
+      if(this.viewRecAs==='scatter'){
+        this.DOM.root.selectAll(".onRecordLine").style('opacity',1);
+        var accX = this.scatterAttrib.summaryID;
+        var accY = this.sortingOpt_Active.summaryID;
+
+        var recX = this.scatterAxisScale_X(record._valueCache[accX]);
+        var recY = this.scatterAxisScale_Y(record._valueCache[accY]);
+        this.DOM.scatterAxis_X.select(".onRecordLine").style("transform","translate(  "+recX+"px,0px)");
+        this.DOM.scatterAxis_Y.select(".onRecordLine").style("transform","translate(0px,"+recY+"px)");
+
+        this.DOM.scatterAxis_X.select(".onRecordLine > .tickText").html(
+          this.scatterAttrib.printWithUnitName(record._valueCache[accX] ));
+        this.DOM.scatterAxis_Y.select(".onRecordLine > .tickText").html(
+          this.sortingOpt_Active.printWithUnitName(record._valueCache[accY] ));
+      }
+      if(this.viewRecAs==='map' || this.viewRecAs==='nodelink' || this.viewRecAs==='scatter'){
+        // reorder dom so it appears on top.
+        record.DOM.record.parentNode.appendChild(record.DOM.record);
+      }
+    },
+    /** -- */
+    onRecordMouseLeave: function(record){
+      record.unhighlightRecord();
+      this.unhighlightLinked(record);
+      if(this.viewRecAs==='scatter'){
+        this.DOM.root.selectAll(".onRecordLine").style('opacity',null);
+      }
+    },
+    /** -- */
     refreshRecordDOM: function(){
       var me=this, x;
-      var records = (this.displayType==='map')?
-        this.browser.records :
+      var records = (
+        this.viewRecAs==='map' || 
+        this.viewRecAs==='nodelink' ||
+        this.viewRecAs==='scatter'
+      )?
+        // all records
+        this.browser.records
+        : 
+        // only top-sorted records
         this.browser.records.filter(function(record){
           return record.isWanted && (record.recordRank<me.maxVisibleItems);
         });
@@ -2333,96 +3533,108 @@ kshf.RecordDisplay.prototype = {
         .data(records, function(record){ return record.id(); }).enter();
 
       var nodeType = ({
-        'map'     : 'path',
-        'nodelink': 'g',
-        'list'    : 'div',
-        'grid'    : 'div'
-      })[this.displayType];
+        map      : 'path',
+        nodelink : 'circle',
+        scatter  : 'circle',
+        list     : 'div',
+        grid     : 'div'
+      })[this.viewRecAs];
+
+      var briefSummaryID = this.recordViewSummaryBrief.summaryID;
+      var mainSummaryID = this.recordViewSummary.summaryID;
 
       // Shared structure per record view
       newRecords = newRecords
         .append( nodeType )
         .attr('class','kshfRecord')
-        .attr('details',false)
         .attr("id",function(record){ return "kshfRecord_"+record.id(); }) // can be used to apply custom CSS
         .attr("rec_compared",function(record){ return record.selectCompared_str?record.selectCompared_str:null;})
-        .each(function(record){ 
+        .each(function(record){
           record.DOM.record = this;
-          if(me.displayType==='map'){
+          if(me.viewRecAs==='map'){
             this.tipsy = new Tipsy(this, {
               gravity: 'e',
               title: function(){ 
                 var v = me.sortingOpt_Active.summaryFunc.call(record.data,record);
                 return ""+
-                  "<span class='mapItemName'>"+me.recordViewSummary.summaryFunc.call(record.data,record)+"</span>"+
+                  "<span class='mapItemName'>"+record._valueCache[mainSummaryID]+"</span>"+
                   "<span class='mapTooltipLabel'>"+me.sortingOpt_Active.summaryName+"</span>: "+
                   "<span class='mapTooltipValue'>"+me.sortingOpt_Active.printWithUnitName(v)+"</span>";
               }
             });
           }
+          if(me.viewRecAs==='scatter' || me.viewRecAs==='nodelink'){
+            this.tipsy = new Tipsy(this, {
+              gravity: 'e',
+              className: 'recordTip',
+              title: function(){ return record._valueCache[mainSummaryID]; }
+            });
+          }
         })
         .on("mouseenter",function(record){
           var DOM = this;
-          if(this.tipsy) {
-            this.tipsy.show();
-            var browserPos = me.browser.DOM.root[0][0].getBoundingClientRect();
-            this.tipsy.jq_tip[0][0].style.left = (d3.event.pageX - browserPos.left - this.tipsy.tipWidth-10)+"px";
-            this.tipsy.jq_tip[0][0].style.top = (d3.event.pageY - browserPos.top -this.tipsy.tipHeight/2)+"px";
-          }
-
-          // mouse is moving fast, should wait a while...
-          this.highlightTimeout = window.setTimeout(
-            function(){ 
-              if(me.displayType==='nodelink') me.highlightLinked(record);
-              record.highlightRecord();
-              if(me.displayType==='map' || me.displayType==='nodelink'){
-                d3.select(DOM.parentNode.appendChild(DOM));
-              }
-            }, 
-            (me.browser.mouseSpeed<0.2) ? 0 : me.browser.mouseSpeed*300);
-
+          var event = d3.event;
+          if(this.highlightTimeout) clearTimeout(this.highlightTimeout);
+          this.highlightTimeout = setTimeout(function(){ 
+            if(DOM.tipsy) {
+              DOM.tipsy.show();
+              if(me.viewRecAs==='map'){
+                var browserPos = me.browser.DOM.root.node().getBoundingClientRect();
+                DOM.tipsy.jq_tip.node().style.left = 
+                  (event.pageX - browserPos.left - DOM.tipsy.tipWidth-10)+"px";
+                DOM.tipsy.jq_tip.node().style.top = 
+                  (event.pageY - browserPos.top -DOM.tipsy.tipHeight/2)+"px";
+                }
+            }
+            me.onRecordMouseOver(record);
+          }, (me.browser.mouseSpeed<0.2) ? 0 : me.browser.mouseSpeed*300);
           d3.event.stopPropagation();
           d3.event.preventDefault();
         })
         .on("mouseleave",function(record){
           if(this.highlightTimeout) window.clearTimeout(this.highlightTimeout);
           if(this.tipsy) this.tipsy.hide();
-          if(me.displayType==='nodelink') me.unhighlightLinked(record);
-          record.unhighlightRecord();
+          me.onRecordMouseLeave(record);
         })
         .on("mousedown", function(){
           this._mousemove = false;
+          d3.event.stopPropagation();
+          d3.event.preventDefault();
         })
         .on("mousemove", function(){
           this._mousemove = true;
-          if(this.tipsy){
-            var browserPos = me.browser.DOM.root[0][0].getBoundingClientRect();
-            this.tipsy.jq_tip[0][0].style.left = (d3.event.pageX - browserPos.left - this.tipsy.tipWidth-10)+"px";
-            this.tipsy.jq_tip[0][0].style.top = (d3.event.pageY - browserPos.top -this.tipsy.tipHeight/2)+"px";
+          if(me.viewRecAs==='map' && this.tipsy && this.tipsy.jq_tip){
+            var browserPos = me.browser.DOM.root.node().getBoundingClientRect();
+            this.tipsy.jq_tip.node().style.left =
+              (d3.event.pageX - browserPos.left - this.tipsy.tipWidth-10)+"px";
+            this.tipsy.jq_tip.node().style.top =
+              (d3.event.pageY - browserPos.top -this.tipsy.tipHeight/2)+"px";
           }
         })
-        .on("click",function(d){
+        .on("click",function(_record){
+          if(this.tipsy) this.tipsy.hide();
           if(this._mousemove) return; // Do not show the detail view if the mouse was used to drag the map
-          if(me.displayType==='map' || me.displayType==='nodelink'){
-            me.browser.updateRecordDetailPanel(d);
+          if(me.viewRecAs==='map' || me.viewRecAs==='nodelink' || me.viewRecAs==='scatter'){
+            me.browser.updateRecordDetailPanel(_record);
           }
         });
       
-      if(this.displayType==='list' || this.displayType==="grid"){
+      if(this.viewRecAs==='list' || this.viewRecAs==="grid"){
+        newRecords.attr('details',false);
         // RANK
         x = newRecords.append("span").attr("class","recordRank")
-          .each(function(d){
+          .each(function(_record){
             this.tipsy = new Tipsy(this, {
               gravity: 'e',
-              title: function(){ return kshf.Util.ordinal_suffix_of((d.recordRank+1)); }
+              title: function(){ return kshf.Util.ordinal_suffix_of((_record.recordRank+1)); }
             });
           })
           .on("mouseenter",function(){ this.tipsy.show(); })
           .on("mouseout"  ,function(){ this.tipsy.hide(); });
         this.refreshRecordRanks(x);
         // SORTING VALUE LABELS
-        if(this.displayType==='list'){
-          x = newRecords.append("div").attr("class","recordSortCol").style("width",this.sortColWidth+"px");
+        if(this.viewRecAs==='list'){
+          x = newRecords.append("div").attr("class","recordSortValue").style("width",this.sortColWidth+"px");
           this.refreshRecordSortLabels(x);
         }
         // TOGGLE DETAIL
@@ -2431,7 +3643,7 @@ kshf.RecordDisplay.prototype = {
             this.tipsy = new Tipsy(this, {
               gravity:'s',
               title: function(){
-                if(me.detailsToggle==="one" && this.displayType==='list')
+                if(me.detailsToggle==="one" && this.viewRecAs==='list')
                   return d.showDetails===true?"Show less":"Show more";
                 return kshf.lang.cur.ShowMoreInfo;
               }
@@ -2441,7 +3653,7 @@ kshf.RecordDisplay.prototype = {
           .on("mouseleave", function(){ this.tipsy.hide(); })
           .on("click", function(record){
             this.tipsy.hide();
-            if(me.detailsToggle==="one" && me.displayType==='list'){
+            if(me.detailsToggle==="one" && me.viewRecAs==='list'){
               record.setRecordDetails(!record.showDetails);
             }
             if(me.detailsToggle==="zoom"){
@@ -2449,28 +3661,17 @@ kshf.RecordDisplay.prototype = {
             }
           });
 
-        // Insert the custom content!
-        // Note: the value was already evaluated and stored in the record object
-        var recordViewID = this.recordViewSummary.summaryID;
+        // Insert the content
         newRecords.append("div").attr("class","content")
-          .html(function(record){ 
-            return me.recordViewSummary.summaryFunc.call(record.data, record);
-          });
+          .html(function(record){ return record._valueCache[mainSummaryID]; });
 
         // Fixes ordering problem when new records are made visible on the list
         // TODO: Try to avoid this.
-        this.DOM.recordGroup.selectAll(".kshfRecord")
-          .data(records, function(record){ return record.id(); })
-          .order();
+        this.DOM.recordGroup.selectAll(".kshfRecord").order();
       }
 
-      if(this.displayType==='nodelink'){
-        newRecords.append("circle").attr("r",4);
-        newRecords.append("text").attr("class","kshfRecord_label")
-          .attr("dy",4).attr("dx",6)
-          .html(function(record){ 
-            return me.recordViewSummary.summaryFunc.call(record.data, record);
-          });
+      if(this.viewRecAs==='nodelink' || this.viewRecAs==='scatter'){
+        newRecords.attr("r",4);
       }
 
       // Call the onDOM function for all the records that have been inserted to the page
@@ -2480,15 +3681,17 @@ kshf.RecordDisplay.prototype = {
 
       this.DOM.kshfRecords = this.DOM.recordGroup.selectAll(".kshfRecord");
 
-      if(this.displayType==='map') {
-        this.map_zoomToActive();
-        this.map_projectRecords();
+      if(this.viewRecAs==='map') {
+        this.recMap_zoomToActive();
+        this.recMap_projectRecords();
         this.refreshRecordColors();
-      } else if(this.displayType==='nodelink'){
+      } else if(this.viewRecAs==='nodelink'){
         this.refreshRecordColors();
+      } else if(this.viewRecAs==='scatter'){
+        // Nothing...
       } else {
-        this.DOM.recordSortCol = this.DOM.recordGroup.selectAll(".recordSortCol");
-        this.DOM.recordRanks    = this.DOM.recordGroup.selectAll(".recordRank");
+        this.DOM.recordSortValue    = this.DOM.recordGroup.selectAll(".recordSortValue");
+        this.DOM.recordRanks        = this.DOM.recordGroup.selectAll(".recordRank");
         this.DOM.recordToggleDetail = this.DOM.recordGroup.selectAll(".recordToggleDetail");
       }
 
@@ -2496,7 +3699,7 @@ kshf.RecordDisplay.prototype = {
     },
     /** -- */
     showMoreRecordsOnList: function(){
-      if(this.displayType==='map') return;
+      if(this.viewRecAs==='map' || this.viewRecAs==='nodelink' || this.viewRecAs==='scatter') return;
       this.DOM.showMore.attr("showMoreVisible",false);
       this.maxVisibleItems += Math.min(this.maxVisibleItems,250);
       this.refreshRecordDOM();
@@ -2568,53 +3771,49 @@ kshf.RecordDisplay.prototype = {
       }
       return sortValueFunction;
     },
-    /** Updates visibility of individual records */
+    /** -- */
     updateRecordVisibility: function(){
+      var me = this;
       if(this.DOM.kshfRecords===undefined) return;
 
-      var me = this;
-      var visibleItemCount=0;
-
-      if(me.displayType==='map'){
+      if(this.viewRecAs==='map' || this.viewRecAs==='nodelink' || this.viewRecAs==='scatter'){
         this.DOM.kshfRecords.each(function(record){
           this.style.opacity = record.isWanted?0.9:0.2;
           this.style.pointerEvents = record.isWanted?"":"none";
           this.style.display = "block"; // Have this bc switching views can invalidate display
         });
-      } else if(me.displayType==='nodelink'){
-        this.browser.records.forEach(function(record){
-          if(record.DOM.record) record.DOM.record.style.display = record.isWanted?"block":"none";
-        });
-        this.DOM.recordLinks.each(function(link){
-          this.style.display = (!link.source.isWanted || !link.target.isWanted) ? "none" : null;
-        });
       } else {
+        var visibleItemCount=0;
         this.DOM.kshfRecords.each(function(record){
           var recordIsVisible = (record.recordRank>=0) && (record.recordRank<me.maxVisibleItems);
           if(recordIsVisible) visibleItemCount++;
           this.style.display = recordIsVisible?null:'none';
         });
-
         this.DOM.showMore.select(".CountAbove").html("&#x25B2;"+visibleItemCount+" shown");
         this.DOM.showMore.select(".CountBelow").html((this.browser.recordsWantedCount-visibleItemCount)+" below&#x25BC;");
       };
+      if(this.viewRecAs==='nodelink'){
+        this.DOM.recordLinks.each(function(link){
+          this.style.display = (!link.source.isWanted || !link.target.isWanted) ? "none" : null;
+        });
+      } 
     },
     /** -- */
     updateAfterFilter: function(){
       if(this.recordViewSummary===null) return;
-      if(this.displayType==='map') {
+      if(this.viewRecAs==='map') {
         this.updateRecordVisibility();
-        //this.map_zoomToActive();
-      } else if(this.displayType==='nodelink') {
+        //this.recMap_zoomToActive();
+      } else if(this.viewRecAs==='nodelink') {
         this.updateRecordVisibility();
-        this.DOM.NodeLinkAnim_Refresh.style('display','inline-block');
-        // this.refreshNodeLinks();
+      } else if(this.viewRecAs==='scatter') {
+        this.updateRecordVisibility();
       } else {
         var me=this;
         var startTime = null;
-        var scrollDom = this.DOM.recordGroup[0][0];
+        var scrollDom = this.DOM.recordGroup.node();
         var scrollInit = scrollDom.scrollTop;
-        var easeFunc = d3.ease('cubic-in-out');
+        var easeFunc = d3.easeCubic;
         var animateToTop = function(timestamp){
           var progress;
           if(startTime===null) startTime = timestamp;
@@ -2648,57 +3847,100 @@ kshf.RecordDisplay.prototype = {
       this.maxVisibleItems = this.maxVisibleItems_Default;
     },
     /** -- */
+    getScatterAttributes: function(){
+      if(this.sortingOpt_Active.scaleType==='time') return [];
+      var me=this;
+      return this.sortingOpts.filter(function(s){ 
+        return s.scaleType!=='time' && s.summaryID!==me.sortingOpt_Active.summaryID;
+      });
+    },
+    /** -- */
     viewAs: function(d){
-      d = d.toLowerCase();
-      this.displayType = d;
-      this.DOM.root.attr("displayType",this.displayType);
+      this.viewRecAs = d.toLowerCase();
+      this.DOM.root.attr("displayType", this.viewRecAs);
 
-      if(this.displayType==='map'){
-        this.initDOM_MapView();
-        this.DOM.recordDisplayHeader.select(".recordView_HeaderSet").style("display","inline-block");
-        this.DOM.root.select(".recordView_SetList").style("display","inline-block");
-        if(this.nodelink_Force) this.nodelink_Force.stop();
-      } else if(this.displayType==='nodelink'){
-        this.initDOM_NodeLinkView();
-        this.DOM.recordDisplayHeader.select(".recordView_HeaderSet").style("display","inline-block");
-        this.DOM.root.select(".recordView_SetList").style("display","inline-block");
-      } else {
-        this.initDOM_ListView();
-        this.DOM.root.select(".recordView_SetList").style("display",null);
-        if(this.nodelink_Force) this.nodelink_Force.stop();
-      }
-      this.DOM.root.select(".recordView_SetMap").style("display",
-        (this.config.geo && this.displayType!=='map') ? "inline-block" : null );
-      this.DOM.root.select(".recordView_SetNodeLink").style("display",
-        (this.config.linkBy.length>0 && this.displayType!=='nodelink') ? "inline-block" : null );
+      if(this.recordViewSummary===null) return;
 
-      if(this.recordViewSummary) {
-        
-        if(this.displayType==='list' || this.displayType==="grid"){
+      var viewAsOptions = { List: true }; // list-view is always available
+      if(this.config.geo)    viewAsOptions.Map = true;
+      if(this.linkBy.length) viewAsOptions.NodeLink = true;
+      viewAsOptions.Scatter = this.getScatterAttributes();
+
+      this.DOM.root.select(".recordDisplay_ViewAsList")    
+        .style("display", "inline-block");
+      this.DOM.root.select(".recordDisplay_ViewAsMap")     
+        .style("display", (viewAsOptions.Map) ? "inline-block" : null );
+      this.DOM.root.select(".recordDisplay_ViewAsNodeLink")
+        .style("display", (viewAsOptions.NodeLink) ? "inline-block" : null );
+      this.DOM.root.select(".recordDisplay_ViewAsScatter") 
+        .style("display", (viewAsOptions.Scatter.length>0) ? "inline-block" : null );
+
+      this.browser.DOM.root.attr("recordEncoding",this.getRecordEncoding()); // "sort" / "color"
+
+      this.DOM.recordDisplayHeader.select(".recordDisplay_ViewGroup")
+        .style("display",
+          (viewAsOptions.Map || viewAsOptions.NodeLink || viewAsOptions.Scatter.length>0 ) 
+            ? "inline-block" 
+            : null
+        );
+
+      switch(this.viewRecAs){
+        case 'list':
+        case 'grid':
+          this.initDOM_ListView();
           this.sortRecords();
           this.refreshRecordDOM();
-          this.setSortColumnWidth(this.config.sortColWidth || 50); // default: 50px;
-        } else if(this.displayType==='map'){
+          this.setSortColumnWidth(this.sortColWidth || 50); // default: 50px;
+          this.DOM.kshfRecords = this.DOM.recordGroup_List.selectAll(".kshfRecord");
+          break;
+        case 'map':
+          this.initDOM_MapView();
+          this.refreshRecordDOM();
           this.refreshRecordColors();
-        } else if(this.displayType==='nodelink'){
+          break;
+        case 'nodelink':
+          this.initDOM_NodeLinkView();
+          this.setNodeLink();
+          this.refreshRecordDOM();
           this.refreshRecordColors();
-        }
-        this.updateRecordVisibility();
-
-        this.browser.DOM.root.attr("recordDisplayMapping",this.getRecordEncoding()); // "sort" or "color"
+          this.nodelink_restart();
+          break;
+        case 'scatter':
+          if(this.scatterAttrib===undefined){
+            this.setScatterAttrib(viewAsOptions.Scatter[0]);
+          }
+          this.initDOM_Scatter();
+          this.refreshRecordDOM();
+          this.refreshScatterVis();
+          this.resetScatterZoom();
+          this.refreshQueryBox_Filter();
+          break;
       }
+
+      if(this.nodelink_Force && this.viewRecAs!=='nodelink') {
+        this.nodelink_Force.stop();
+        this.DOM.root.attr("NodeLinkState","stopped");
+        this.DOM.root.classed("hideLinks",null);
+      }
+
+      // set style after initializing dom...
+      this.DOM.root.select(".LinkControl-LinkAttrib").style("display", this.linkBy.length ? "inline-block" : "none");
+
+      this.updateRecordVisibility();
+
+      this.DOM.kshfRecords.each(function(record){ record.DOM.record = this; });
     },
     /** -- */
     exportConfig: function(){
       var c={};
-      c.displayType = this.displayType;
+      c.displayType = this.viewRecAs;
       if(this.textSearchSummary){
         c.textSearch = this.textSearchSummary.summaryName;
       }
       if(typeof(this.recordViewSummary.summaryColumn)==="string"){
         c.recordView = this.recordViewSummary.summaryColumn;
       } else {
-        c.recordView = this.recordViewSummary.summaryFunc.toString();
+        c.recordView = this.recordViewSummary.summaryFunc.toString(); // converts function to string
       }
       c.sortBy = [];
       browser.recordDisplay.sortingOpts.forEach(function(summary){
@@ -2711,7 +3953,9 @@ kshf.RecordDisplay.prototype = {
     }
 };
 
-
+/** 
+ * @constructor
+ */
 kshf.Panel = function(options){
   this.browser = options.browser;
   this.name = options.name;
@@ -2722,9 +3966,9 @@ kshf.Panel = function(options){
 
   this.DOM = {};
   this.DOM.root = options.parentDOM.append("div")
-      .attr("hasSummaries",false)
-      .attr("class", "panel panel_"+options.name+
-          ((options.name==="left"||options.name==="right")?" panel_side":""));
+    .attr("hasSummaries",false)
+    .attr("class", "panel panel_"+options.name+
+      ((options.name==="left"||options.name==="right")?" panel_side":""));
   this.initDOM_AdjustWidth();
   this.initDOM_DropZone();
 };
@@ -2749,14 +3993,14 @@ kshf.Panel.prototype = {
       else
         this.summaries.splice(index,0,summary);
       this.DOM.root.attr("hasSummaries",true);
-      this.updateWidth_MeasureLabel();
-      this.refreshAdjustWidth();
+      if(summary instanceof kshf.Summary_Categorical)
+        this.updateWidth_MeasureLabel();
     } else { // summary was in the panel. Change position
       this.summaries.splice(curIndex,1);
       this.summaries.splice(index,0,summary);
     }
     this.summaries.forEach(function(s,i){ s.panelOrder = i; });
-    this.addDOM_DropZone(summary.DOM.root[0][0]);
+    this.addDOM_DropZone(summary.DOM.root.node());
     this.refreshAdjustWidth();
   },
   /** -- */
@@ -2765,7 +4009,7 @@ kshf.Panel.prototype = {
     this.summaries.forEach(function(s,i){ if(s===summary) indexFrom = i; });
     if(indexFrom===-1) return; // given summary is not within this panel
 
-    var toRemove=this.DOM.root.selectAll(".dropZone_between_wrapper")[0][indexFrom];
+    var toRemove = this.DOM.root.selectAll(".dropZone_between_wrapper").nodes()[indexFrom];
     toRemove.parentNode.removeChild(toRemove);
 
     this.summaries.splice(indexFrom,1);
@@ -2801,8 +4045,8 @@ kshf.Panel.prototype = {
       .on("mouseup",function(){
         var movedSummary = me.browser.movedSummary;
         if(movedSummary.panel){ // if the summary was in the panels already
-          movedSummary.DOM.root[0][0].nextSibling.style.display = "";
-          movedSummary.DOM.root[0][0].previousSibling.style.display = "";
+          movedSummary.DOM.root.node().nextSibling.style.display = "";
+          movedSummary.DOM.root.node().previousSibling.style.display = "";
         }
 
         movedSummary.addToPanel(me,this.__data__);
@@ -2836,8 +4080,8 @@ kshf.Panel.prototype = {
         var movedSummary = me.browser.movedSummary;
         if(movedSummary===undefined) return;
         if(movedSummary.panel){ // if the summary was in the panels already
-            movedSummary.DOM.root[0][0].nextSibling.style.display = "";
-            movedSummary.DOM.root[0][0].previousSibling.style.display = "";
+            movedSummary.DOM.root.node().nextSibling.style.display = "";
+            movedSummary.DOM.root.node().previousSibling.style.display = "";
         }
         movedSummary.addToPanel(me);
         me.browser.updateLayout();
@@ -2869,6 +4113,7 @@ kshf.Panel.prototype = {
           if(me.name==='right') mouseDif *= -1;
           var oldhideBarAxis = me.hideBarAxis;
           me.setWidthCatBars(mouseDown_width+mouseDif);
+          me.browser.updateMiddlePanelWidth();
           if(me.hideBarAxis!==oldhideBarAxis){
             me.browser.updateLayout_Height();
           }
@@ -2884,8 +4129,8 @@ kshf.Panel.prototype = {
         d3.event.preventDefault();
       })
       .on("click",function(){
-          d3.event.stopPropagation();
-          d3.event.preventDefault();
+        d3.event.stopPropagation();
+        d3.event.preventDefault();
       });
   },
   /** -- */
@@ -2920,25 +4165,28 @@ kshf.Panel.prototype = {
     var widthDif = this.width_catLabel-_w_;
     this.width_catLabel = _w_;
     this.summaries.forEach(function(summary){
-      if(summary.refreshLabelWidth) summary.refreshLabelWidth();
+      if(summary instanceof kshf.Summary_Categorical) 
+        summary.refreshLabelWidth();
     });
     this.setWidthCatBars(this.width_catBars+widthDif);
   },
   /** -- */
-  setWidthCatBars: function(_w_){
+  setWidthCatBars: function(_w_,up){
     _w_ = Math.max(_w_,0);
     this.width_catBars = _w_;
     this.hideBarAxis = _w_<=20;
 
     this.DOM.root
-      .attr("hidebars", _w_<=5)
-      .attr("hideBarAxis", this.hideBarAxis);
-    this.updateSummariesWidth();
-    if(this.name!=="middle") this.browser.updateMiddlePanelWidth();
+      .attr("hideBars", _w_<=5 ? true : null)
+      .attr("hideBarAxis", this.hideBarAxis ? true : null);
+    this.updateSummariesWidth(up);
   },
   /** --- */
-  updateSummariesWidth: function(){
-    this.summaries.forEach(function(summary){ summary.refreshWidth(); });
+  updateSummariesWidth: function(up){
+    this.summaries.forEach(function(summary){ 
+      if(up && !(summary instanceof kshf.Summary_Categorical)) return;
+      summary.refreshWidth();
+    });
   },
   /** --- */
   updateWidth_MeasureLabel: function(){
@@ -2978,9 +4226,10 @@ kshf.Panel.prototype = {
 
     if(width_old!==this.width_catMeasureLabel){
       this.summaries.forEach(function(summary){
-        if(summary.refreshLabelWidth) summary.refreshLabelWidth();
+        if(summary instanceof kshf.Summary_Categorical) summary.refreshLabelWidth();
       });
-      this.setWidthCatBars( _w_total_ - this.width_catLabel - this.width_catMeasureLabel - kshf.scrollWidth );
+      var v = _w_total_ - this.width_catLabel - this.width_catMeasureLabel - kshf.scrollWidth;
+      this.setWidthCatBars(v, true); // should not update interval summary width
     }
   },
 };
@@ -3018,6 +4267,8 @@ kshf.Browser = function(options){
   this.mouseSpeed = 0; // includes touch-screens...
 
   this.noAnim = false;
+
+  this.measureLabelType = "Active";
 
   this.domID = options.domID;
 
@@ -3059,12 +4310,6 @@ kshf.Browser = function(options){
   this.flexAggr_Compare_A = new kshf.Aggregate();
   this.flexAggr_Compare_B = new kshf.Aggregate();
   this.flexAggr_Compare_C = new kshf.Aggregate();
-
-  this.allRecordsAggr    .init();
-  this.flexAggr_Highlight.init();
-  this.flexAggr_Compare_A.init();
-  this.flexAggr_Compare_B.init();
-  this.flexAggr_Compare_C.init();
 
   this.allAggregates = [];
   this.allAggregates.push(this.allRecordsAggr);
@@ -3113,7 +4358,7 @@ kshf.Browser = function(options){
     });
 
   // remove any DOM elements under this domID, kshf takes complete control over what's inside
-  var rootDomNode = this.DOM.root[0][0];
+  var rootDomNode = this.DOM.root.node();
   while (rootDomNode.hasChildNodes()) rootDomNode.removeChild(rootDomNode.lastChild);
 
   this.DOM.pointerBlock  = this.DOM.root.append("div").attr("class","pointerBlock");
@@ -3160,7 +4405,12 @@ kshf.Browser = function(options){
   this.insertDOM_AttributePanel();
 
   this.DOM.root.selectAll(".panel").on("mouseleave",function(){
-    setTimeout( function(){ me.updateLayout_Height(); }, 1500); // update layout after 1.5 seconds
+    setTimeout( function(){ 
+      if(me.needToRefreshLayout){
+        me.updateLayout_Height();
+        me.needToRefreshLayout = false;
+      }
+    }, 1500); // update layout after 1.5 seconds
   });
 
   kshf.loadFont();
@@ -3178,7 +4428,7 @@ kshf.Browser = function(options){
 kshf.Browser.prototype = {
     /** -- */
     setNoAnim: function(v){
-      if(v===this.noAnim) return;
+      //if(v===this.noAnim) return;
       if(this.finalized===undefined) return;
       this.noAnim=v;
       this.DOM.root.attr("noanim",this.noAnim);
@@ -3286,6 +4536,13 @@ kshf.Browser.prototype = {
       summary.setSummaryName(newName);
       return summary;
     },
+    setRecordName: function(v){
+      this.recordName = v;
+      this.DOM.recordName.html(this.recordName);
+      if(this.recordDisplay && this.recordDisplay.recordViewSummary){
+        this.recordDisplay.DOM.recordDisplayName.html('<i class="fa fa-angle-down"></i> '+this.recordName);
+      }
+    },
     /** -- */
     updateWidth_Total: function(){
       this.divWidth = parseInt(this.DOM.root.style("width"));
@@ -3303,10 +4560,18 @@ kshf.Browser.prototype = {
       return this.vizActive.Compare_A + this.vizActive.Compare_B + this.vizActive.Compare_C;
     },
     /** -- */
-    createFilter: function(filterOptions){
-      filterOptions.browser = this;
-      // see if it has been created before TODO
-      var newFilter = new kshf.Filter(filterOptions);
+    createFilter: function(_type, _parent){
+      var newFilter;
+      switch(_type){
+        case 'categorical': 
+          newFilter = new kshf.Filter_Categorical(this, _parent); break;
+        case 'interval': 
+          newFilter = new kshf.Filter_Interval(this, _parent); break;
+        case 'text': 
+          newFilter = new kshf.Filter_Text(this, _parent); break;
+        case 'spatial': 
+          newFilter = new kshf.Filter_Spatial(this, _parent); break;
+      }
       this.filters.push(newFilter);
       return newFilter;
     },
@@ -3344,7 +4609,7 @@ kshf.Browser.prototype = {
       var me=this;
       if(this.DOM.measureSelectBox) return;
       this.DOM.measureSelectBox = this.DOM.measureSelectBox_Wrapper.append("div").attr("class","measureSelectBox")
-        .style({ left: "0px", top: "0px" });
+        .styles({ left: "0px", top: "0px" });
       this.DOM.measureSelectBox.append("div").attr("class","measureSelectBox_Close fa fa-times-circle")
         .each(function(d){ this.tipsy = new Tipsy(this, { gravity: 'e', title: kshf.lang.cur.Close }); })
         .on("mouseenter", function(){ this.tipsy.show(); })
@@ -3355,18 +4620,18 @@ kshf.Browser.prototype = {
         .on("mousedown", function (d, i) {
           me.DOM.root.attr("pointerEvents",false);
 
-          var initPos = d3.mouse(d3.select("body")[0][0]);
-          var DOM = me.DOM.measureSelectBox[0][0];
+          var initPos = d3.mouse(d3.select("body").node());
+          var DOM = me.DOM.measureSelectBox.node();
           var initX = parseInt(DOM.style.left);
           var initY = parseInt(DOM.style.top);
           var boxWidth  = DOM.getBoundingClientRect().width;
           var boxHeight = DOM.getBoundingClientRect().height;
-          var maxWidth  = me.DOM.root[0][0].getBoundingClientRect().width  - boxWidth;
-          var maxHeight = me.DOM.root[0][0].getBoundingClientRect().height - boxHeight;
+          var maxWidth  = me.DOM.root.node().getBoundingClientRect().width  - boxWidth;
+          var maxHeight = me.DOM.root.node().getBoundingClientRect().height - boxHeight;
           me.DOM.root.attr("drag_cursor","grabbing");
 
           d3.select("body").on("mousemove", function() {
-            var newPos = d3.mouse(d3.select("body")[0][0]);
+            var newPos = d3.mouse(d3.select("body").node());
             DOM.style.left = Math.min(maxWidth , Math.max(0, initX-initPos[0]+newPos[0] ))+"px";
             DOM.style.top  = Math.min(maxHeight, Math.max(0, initY-initPos[1]+newPos[1] ))+"px";
           }).on("mouseup", function(){
@@ -3393,7 +4658,7 @@ kshf.Browser.prototype = {
           }
           this.setAttribute("selected","");
           me.DOM.measureSelectBox.select(".sdsso23oadsa").attr("disabled",null);
-          me.setMeasureMetric(d.v, me.DOM.sdsso23oadsa[0][0].selectedOptions[0].__data__);
+          me.setMeasureMetric(d.v, me.DOM.sdsso23oadsa.node().selectedOptions[0].__data__);
         });
 
       this.DOM.sdsso23oadsa = m.append("div").attr("class","measureSelectBox_Content_Summaries")
@@ -3415,9 +4680,9 @@ kshf.Browser.prototype = {
     },
     /** -- */
     closeMeasureSelectBox: function(){
-      this.DOM.measureSelectBox_Wrapper.attr("showMeasureBox",false); // Close box
+      this.DOM.measureSelectBox_Wrapper.attr("showMeasureBox",null); // Close box
       this.DOM.measureSelectBox = undefined;
-      var d = this.DOM.measureSelectBox_Wrapper[0][0];
+      var d = this.DOM.measureSelectBox_Wrapper.node();
       while (d.hasChildNodes()) d.removeChild(d.lastChild);
     },
     /** -- */
@@ -3430,8 +4695,7 @@ kshf.Browser.prototype = {
 
       this.DOM.panel_Basic = this.DOM.panel_Wrapper.append("div").attr("class","panel_Basic");
 
-      this.DOM.measureSelectBox_Wrapper = this.DOM.panel_Basic.append("span").attr("class","measureSelectBox_Wrapper")
-        .attr("showMeasureBox",false);
+      this.DOM.measureSelectBox_Wrapper = this.DOM.panel_Basic.append("span").attr("class","measureSelectBox_Wrapper");
 
       this.DOM.measureFuncSelect = this.DOM.panel_Basic.append("span")
         .attr("class","measureFuncSelect fa fa-cubes")
@@ -3482,7 +4746,7 @@ kshf.Browser.prototype = {
         .on("blur",function(){
           this.parentNode.setAttribute("edittitle",false);
           this.setAttribute("contenteditable", false);
-          me.recordName = this.textContent;
+          me.setRecordName(this.textContent);
         })
         .on("keyup"   ,function(){ d3.event.stopPropagation(); })
         .on("keypress",function(){ d3.event.stopPropagation(); })
@@ -3490,7 +4754,7 @@ kshf.Browser.prototype = {
           if(event.keyCode===13){ // ENTER
             this.parentNode.setAttribute("edittitle",false);
             this.setAttribute("contenteditable", false);
-            me.recordName = this.textContent;
+            me.setRecordName(this.textContent);
           }
           d3.event.stopPropagation();
         })
@@ -3500,15 +4764,15 @@ kshf.Browser.prototype = {
           if(curState===null || curState==="false"){
             this.parentNode.setAttribute("edittitle",true);
             var parentDOM = d3.select(this.parentNode);
-            var v=parentDOM.select(".recordName")[0][0];
+            var v=parentDOM.select(".recordName").node();
             v.setAttribute("contenteditable",true);
             v.focus();
           } else {
             this.parentNode.setAttribute("edittitle",false);
             var parentDOM = d3.select(this.parentNode);
-            var v=parentDOM.select(".recordName")[0][0];
+            var v=parentDOM.select(".recordName").node();
             v.setAttribute("contenteditable",false);
-            me.recordName = this.textContent;
+            me.setRecordName(this.textContent);
           }
         });
 
@@ -3590,7 +4854,7 @@ kshf.Browser.prototype = {
           // Set description (from page title if it exists)
           var description = "Keshif Browser Configuration";
           // In demo pages, demo_PageTitle gives more context - use it as description
-          if(d3.select("#demo_PageTitle")[0][0]){
+          if(d3.select("#demo_PageTitle").node()){
             description = d3.select("#demo_PageTitle").html();
           }
 
@@ -3601,12 +4865,12 @@ kshf.Browser.prototype = {
           };
           // Add style file, if custom style exists
           var badiStyle = d3.select("#kshfStyle");
-          if(badiStyle[0].length > 0 && badiStyle[0][0]!==null){
+          if(badiStyle.node()!==null){
             githubLoad.files["kshf_style.css"] = { content: badiStyle.text()};
           }
 
           function gist_createNew(){
-            var xhr = d3.xhr('https://api.github.com/gists');
+            var xhr = d3.request('https://api.github.com/gists');
             if(kshf.gistLogin) xhr.header("Authorization","token "+kshf.githubToken);
             xhr.post( JSON.stringify(githubLoad), // data
                 function(error, data){ 
@@ -3624,11 +4888,11 @@ kshf.Browser.prototype = {
                 });
           };
           function gist_sendEdit(){
-            var xhr = d3.xhr('https://api.github.com/gists/'+kshf.gistInfo.id);
+            var xhr = d3.request('https://api.github.com/gists/'+kshf.gistInfo.id);
             if(kshf.gistLogin) xhr.header("Authorization","token "+kshf.githubToken);
             xhr.send('PATCH',JSON.stringify(githubLoad),
               function(error, data){ 
-                var response = data.response;
+                var response = JSON.parse(data.response);
                 var gistURL = response.html_url;
                 var gistID = gistURL.replace(/.*github.*\//g,'');
                 var keshifGist = "keshif.me/gist?"+gistID;
@@ -3657,7 +4921,7 @@ kshf.Browser.prototype = {
           // AUTHOIZED, EXISTING GIST, FROM ANOTHER USER
           if(kshf.gistInfo.owner===undefined || kshf.gistInfo.owner.login !== kshf.gistLogin){
             // Fork it
-            var xhr = d3.xhr('https://api.github.com/gists'+kshf.gistInfo.id+"/forks");
+            var xhr = d3.request('https://api.github.com/gists'+kshf.gistInfo.id+"/forks");
             if(kshf.gistLogin) xhr.header("Authorization","token "+kshf.githubToken);
             xhr.post( JSON.stringify(githubLoad), // data
                 function(error, data){ 
@@ -3752,7 +5016,7 @@ kshf.Browser.prototype = {
     /** -- */
     refreshTotalViz: function(){
       var me=this;
-      var totalScale = d3.scale.linear()
+      var totalScale = d3.scaleLinear()
         .domain([0, this.allRecordsAggr.measure(this.ratioModeActive ? 'Active' : 'Total') ])
         .range([0, this.getWidth_Browser()])
         .clamp(true);
@@ -3764,14 +5028,12 @@ kshf.Browser.prototype = {
       var curC = 0;
       var stp = VizHeight / totalC;
 
-      this.DOM.totalGlyph.each(function(d){
+      this.DOM.totalGlyph.style("transform",function(d){
         if(d==="Total" || d==="Highlight" || d==="Active"){
-          kshf.Util.setTransform(this, "scale("+totalScale(me.allRecordsAggr.measure(d))+","+VizHeight+")");
+          return "scale("+totalScale(me.allRecordsAggr.measure(d))+","+VizHeight+")";
         } else {
-          kshf.Util.setTransform(this, 
-            "translateY("+(stp*curC)+"px) "+
-            "scale("+totalScale(me.allRecordsAggr.measure(d))+","+stp+")");
           curC++;
+          return "translateY("+(stp*curC)+"px) scale("+totalScale(me.allRecordsAggr.measure(d))+","+stp+")";
         }
       });
     },
@@ -3806,8 +5068,13 @@ kshf.Browser.prototype = {
           .selectAll(".spinner_x").data([1,2,3,4,5]).enter()
             .append("span").attr("class",function(d){ return "spinner_x spinner_"+d; });
         var hmmm=this.DOM.loadingBox.append("div").attr("class","status_text");
-        hmmm.append("span").attr("class","status_text_sub info").text(kshf.lang.cur.LoadingData);
+        hmmm.append("span").attr("class","status_text_sub info").html(
+          kshf.lang.cur.LoadingData);
         this.DOM.status_text_sub_dynamic = hmmm.append("span").attr("class","status_text_sub dynamic");
+        hmmm.append("button")
+          .attr("id","kshf-Sheets-Auth-Button")
+          .styles({visibility: "hidden", display: 'block', margin: '0 auto'})
+          .text("Authorize");
 
         // CREDITS 
         this.DOM.overlay_infobox = this.panel_overlay.append("div").attr("class","overlay_content overlay_infobox");
@@ -3952,7 +5219,7 @@ kshf.Browser.prototype = {
                   gdocLink_ready.attr("ready",true);
               } else {
                   sourceURL = null;
-                  gdocLink_ready.attr("ready",false);
+                  gdocLink_ready.attr("ready",null);
               }
             }
             if(source_type==="GoogleDrive"){
@@ -3964,7 +5231,7 @@ kshf.Browser.prototype = {
                   gdocLink_ready.attr("ready",true);
               } else {
                   sourceURL = null;
-                  gdocLink_ready.attr("ready",false);
+                  gdocLink_ready.attr("ready",null);
               }
             }
             if(source_type==="Dropbox"){
@@ -3976,7 +5243,7 @@ kshf.Browser.prototype = {
                   gdocLink_ready.attr("ready",true);
               } else {
                   sourceURL = null;
-                  gdocLink_ready.attr("ready",false);
+                  gdocLink_ready.attr("ready",null);
               }
             }
             actionButton.attr("disabled",!readyToLoad());
@@ -3997,19 +5264,31 @@ kshf.Browser.prototype = {
               return;
             }
             localFile = files[0];
-            switch(localFile.type){
-              case "application/json": // json
+            var extension = localFile.name.split(".").pop();
+            switch(extension){
+              case "json": // json
+              //case "application/json": // json
                 localFile.fileType = "json";
                 localFile.name = localFile.name.replace(".json","");
                 break;
-              case "text/csv": // csv
+
+              case "csv":
+//              case "text/csv": // csv
+//              case "text/comma-separated-values":
+//              case "application/csv":
+//              case "application/excel":
+//              case "application/vnd.ms-excel":
+//              case "application/vnd.msexcel":
                 localFile.fileType = "csv";
                 localFile.name = localFile.name.replace(".csv","");
                 break;
-              case "text/tab-separated-values":  // tsv
+
+              case "tsv":
+//              case "text/tab-separated-values":  // tsv
                 localFile.fileType = "tsv";
                 localFile.name = localFile.name.replace(".tsv","");
                 break;
+
               default:
                 localFile = undefined;
                 actionButton.attr("disabled",true);
@@ -4096,20 +5375,23 @@ kshf.Browser.prototype = {
               case "GoogleSheet":
                 me.loadSource({
                   gdocId: sourceURL,
-                  tables: {name:sourceSheet, id:sheetID}
+                  tables: {
+                    name:sourceSheet, 
+                    id:sheetID
+                  }
                 });
                 break;
               case "GoogleDrive":
                 me.loadSource({
                   dirPath: sourceURL,
-                  fileType: DOMfileType[0][0].value,
+                  fileType: DOMfileType.node().value,
                   tables: {name:sourceSheet, id:sheetID}
                 });
                 break;
               case "Dropbox":
                 me.loadSource({
                   dirPath: sourceURL,
-                  fileType: DOMfileType[0][0].value,
+                  fileType: DOMfileType.node().value,
                   tables: {name:sourceSheet, id:sheetID}
                 });
                 break;
@@ -4156,7 +5438,7 @@ kshf.Browser.prototype = {
       this.DOM.attribTextSearchControl = this.DOM.attribTextSearch.append("span")
         .attr("class","textSearchControl fa")
         .on("click",function() { 
-          me.DOM.attribTextSearchControl.attr("showClear",false)[0][0].value="";
+          me.DOM.attribTextSearchControl.attr("showClear",false).node().value="";
           me.summaries.forEach(function(summary){
             if(summary.DOM.nugget===undefined) return;
             summary.DOM.nugget.attr("filtered",false);
@@ -4172,12 +5454,12 @@ kshf.Browser.prototype = {
         .on("input",function(){
           if(this.timer) clearTimeout(this.timer);
           var x = this;
-          var queryString = x.value.toLowerCase();
-          me.DOM.attribTextSearchControl.attr("showClear", (queryString!=="") )
+          var qStr = x.value.toLowerCase();
+          me.DOM.attribTextSearchControl.attr("showClear", (qStr!=="") )
           this.timer = setTimeout( function(){
             me.summaries.forEach(function(summary){
               if(summary.DOM.nugget===undefined) return;
-              summary.DOM.nugget.attr("filtered",(summary.summaryName.toLowerCase().indexOf(queryString)===-1));
+              summary.DOM.nugget.attr("filtered",(summary.summaryName.toLowerCase().indexOf(qStr)===-1));
             });
           }, 750);
         });
@@ -4236,12 +5518,26 @@ kshf.Browser.prototype = {
     updateRecordDetailPanel: function(record){
       var str="";
       if(this.recordDisplay.config && this.recordDisplay.config.onDetail){
-        str = this.recordDisplay.config.onDetail.call(record);
+        str = this.recordDisplay.config.onDetail.call(record.data, record);
       } else {
         for(var column in record.data){
           var v=record.data[column];
           if(v===undefined || v===null) continue;
-          str+="<b>"+column+":</b> "+ v.toString()+"<br>";
+          var defaultStr = "<b>"+column+":</b> "+ v.toString()+"<br>";
+          var s = this.summaries_by_name[column];
+          if(s){
+            if(s instanceof kshf.Summary_Categorical){
+              if(s.catLabel_table){
+                str += "<b>"+column+":</b> "+ s.catLabel_table[v] + "<br>";
+              } else {
+                str += defaultStr;
+              }
+            } else if(s instanceof kshf.Summary_Interval){
+              str += "<b>"+column+":</b> "+ s.printWithUnitName(v)+"<br>";
+            }
+          } else {
+            str += defaultStr;
+          }
         }
       }
       this.DOM.overlay_recordDetails_content.html(str);
@@ -4271,7 +5567,7 @@ kshf.Browser.prototype = {
     /** -- */
     showFullscreen: function(){
       this.isFullscreen = this.isFullscreen?false:true;
-      var elem = this.DOM.root[0][0];
+      var elem = this.DOM.root.node();
       if(this.isFullscreen){
         if (elem.requestFullscreen) {
           elem.requestFullscreen();
@@ -4312,7 +5608,7 @@ kshf.Browser.prototype = {
         if(!Array.isArray(this.source.tables)) this.source.tables = [this.source.tables];
 
         this.source.tables.forEach(function(tableDescr, i){
-            if(typeof tableDescr === "string") this.source.tables[i] = {name: tableDescr};
+          if(typeof tableDescr === "string") this.source.tables[i] = {name: tableDescr};
         }, this);
 
         // Reset loadedTableCount
@@ -4350,7 +5646,7 @@ kshf.Browser.prototype = {
     loadTable_Google: function(sheet){
       var me=this;
       var headers = sheet.headers ? sheet.headers : 1;
-      var qString='https://docs.google.com/spreadsheet/tq?key='+this.source.gdocId+'&headers='+headers;
+      var qString='https://docs.google.com/spreadsheets/d/'+this.source.gdocId+'/gviz/tq?headers='+headers;
       if(sheet.sheetID){
         qString+='&gid='+sheet.sheetID;
       } else {
@@ -4360,55 +5656,136 @@ kshf.Browser.prototype = {
         qString+="&range="+sheet.range;
       }
 
-      var googleQuery = new google.visualization.Query(qString);
-      if(sheet.query) googleQuery.setQuery(sheet.query);
+      var sheetName = sheet.name;
 
-      googleQuery.send( function(response){
-        if(kshf.dt[sheet.name]){
-          me.incrementLoadedTableCount();
-          return;
-        }
-        if(response.isError()) {
-          me.panel_overlay.select("div.status_text .info").text("Cannot load data");
-          me.panel_overlay.select("span.spinner").selectAll("span").remove();
-          me.panel_overlay.select("span.spinner").append('i').attr("class","fa fa-warning");
-          me.panel_overlay.select("div.status_text .dynamic").text("("+response.getMessage()+")");
-          return;
-        }
+      var googleQuery;
 
-        var j,r,i,arr=[],idIndex=-1,itemId=0;
-        var dataTable = response.getDataTable();
-        var numCols = dataTable.getNumberOfColumns();
+      var getWithAuth = function(){
+        gapi.load("client", function(){
+          gapi.auth.authorize(
+            { client_id: googleClientID, 
+              scope: 'https://spreadsheets.google.com/feeds', 
+              immediate: true
+            },
+            function(authResult) {
+              var authorizeButton = document.getElementById('kshf-Sheets-Auth-Button');
+              if (authResult && !authResult.error) {
+                if(authorizeButton) authorizeButton.style.visibility = 'hidden';
+                doQuery();
+              } else if(authorizeButton){
+                alert("Please click the Authorize button");
+                authorizeButton.style.visibility = '';
+                authorizeButton.onclick = function(event) {
+                  gapi.auth.authorize(
+                    { client_id: googleClientID, 
+                      scope: 'https://spreadsheets.google.com/feeds',
+                      immediate: false },
+                    function(authResult){
+                      if (authResult && !authResult.error) doQuery();
+                    });
+                  return false;
+                };
+              }
+            }
+          );
+        });
+      }
 
-        // find the index with sheet.id (idIndex)
-        for(i=0; true ; i++){
-          if(i===numCols || dataTable.getColumnLabel(i).trim()===sheet.id) {
-            idIndex = i;
-            break;
+      kshfHandleGoogleSheetResponse = function(response){
+        if(response.status==="error"){
+          if(response.errors[0].reason==="access_denied"){
+            // need to run it in authenticated mode
+            getWithAuth();
           }
-        }
-
-        var tmpTable=[];
-
-        // create the column name tables
-        for(j=0; j<dataTable.getNumberOfColumns(); j++){
-          tmpTable.push(dataTable.getColumnLabel(j).trim());
-        }
-
-        // create the item array
-        arr.length = dataTable.getNumberOfRows(); // pre-allocate for speed
-        for(r=0; r<dataTable.getNumberOfRows() ; r++){
-          var c={};
-          for(i=0; i<numCols ; i++) {
-            c[tmpTable[i]] = dataTable.getValue(r,i);
+        } else {
+          if(kshf.dt[sheetName]){
+            me.incrementLoadedTableCount();
+            return;
           }
-          // push unique id as the last column if necessary
-          if(c[sheet.id]===undefined) c[sheet.id] = itemId++;
-          arr[r] = new kshf.Record(c,sheet.id);
-        }
+          if(response.isError()) {
+            me.panel_overlay.select("div.status_text .info").text("Cannot load data");
+            me.panel_overlay.select("span.spinner").selectAll("span").remove();
+            me.panel_overlay.select("span.spinner").append('i').attr("class","fa fa-warning");
+            google.visualization.errors.addErrorFromQueryResponse(
+              me.panel_overlay.select("div.status_text .dynamic").node(),
+              response
+              );
+            return;
+          }
 
-        me.finishDataLoad(sheet,arr);
-      });
+          var j,r,i,arr=[],idIndex=-1,itemId=0;
+          var dataTable = response.getDataTable();
+          var numCols = dataTable.getNumberOfColumns();
+
+          // find the index with sheet.id (idIndex)
+          for(i=0; true ; i++){
+            if(i===numCols || dataTable.getColumnLabel(i).trim()===sheet.id) {
+              idIndex = i;
+              break;
+            }
+          }
+
+          var tmpTable=[];
+
+          // create the column name tables
+          for(j=0; j<dataTable.getNumberOfColumns(); j++){
+            tmpTable.push(dataTable.getColumnLabel(j).trim());
+          }
+
+          // create the item array
+          arr.length = dataTable.getNumberOfRows(); // pre-allocate for speed
+          for(r=0; r<dataTable.getNumberOfRows() ; r++){
+            var c={};
+            for(i=0; i<numCols ; i++) {
+              c[tmpTable[i]] = dataTable.getValue(r,i);
+            }
+            // push unique id as the last column if necessary
+            if(c[sheet.id]===undefined) c[sheet.id] = itemId++;
+            arr[r] = new kshf.Record(c,sheet.id);
+          }
+
+          me.finishDataLoad(sheet,arr);
+        }
+      };
+
+      function doQuery(){
+        var queryString = qString;
+        if(sheet.auth){
+          queryString += '&access_token=' + encodeURIComponent(gapi.auth.getToken().access_token);
+        }
+        queryString += '&tqx=responseHandler:kshfHandleGoogleSheetResponse';
+
+        googleQuery = new google.visualization.Query(queryString);
+        if(sheet.query) googleQuery.setQuery(sheet.query);
+        googleQuery.send(kshfHandleGoogleSheetResponse);
+      };
+
+
+      kshfCheckSheetPrivacy = function(response){
+        if(response.status==="error"){
+          if(response.errors[0].reason==="access_denied"){
+            sheet.auth = true;
+            // need to run it in authenticated mode
+            getWithAuth();
+          }
+        } else {
+          doQuery();
+        }
+      };
+
+      if(sheet.auth){
+        getWithAuth();
+      } else if(this.source.tables.length>1){
+        doQuery();
+      } else {
+        // Do a simple access to see if the response would be an access error.
+        var queryString = qString;
+        queryString += '&tqx=responseHandler:kshfCheckSheetPrivacy&range=A1:A1';
+        var scriptDOM = document.createElement("script");
+        scriptDOM.type = "text/javascript";
+        scriptDOM.src = queryString;
+        document.head.appendChild(scriptDOM);
+      }
     },
     /** -- */
     loadTable_CSV: function(tableDescr){
@@ -4453,7 +5830,7 @@ kshf.Browser.prototype = {
         } else {
           if(me.source.callback) me.asyncDataWaitedCnt++;
           // TODO: If callback is defined, perform a SYNC request...
-          d3.xhr(this.source.dirPath+tableDescr.name+"."+this.source.fileType)
+          d3.request(this.source.dirPath+tableDescr.name+"."+this.source.fileType)
             .get(function(error, data){ 
               Papa.parse(data.response,config);
               if(me.source.callback) me.asyncDataLoaded();
@@ -4494,7 +5871,7 @@ kshf.Browser.prototype = {
         reader.readAsText(tableDescr);
       } else {
         if(me.source.callback) me.asyncDataWaitedCnt++;
-        d3.xhr(this.source.dirPath+tableDescr.name+".json?dl=0")
+        d3.request(this.source.dirPath+tableDescr.name+".json?dl=0")
           .get(function(error, data){ 
             try { 
               processJSONText(JSON.parse(data.response)); 
@@ -4542,7 +5919,9 @@ kshf.Browser.prototype = {
       }
       this.records = kshf.dt[this.primaryTableName];
       
-      if(this.recordName==="") this.recordName = this.primaryTableName;
+      if(this.recordName==="") {
+        this.setRecordName(this.primaryTableName);
+      }
 
       var me=this;
       this.panel_overlay.select("div.status_text .info").text(kshf.lang.cur.CreatingBrowser);
@@ -4551,6 +5930,8 @@ kshf.Browser.prototype = {
     },
     /** -- */
     _loadCharts: function(){
+      if(this.chartsLoaded) return;
+      this.chartsLoaded = true;
         var me=this;
 
         if(typeof Helpin !== 'undefined'){
@@ -4658,6 +6039,8 @@ kshf.Browser.prototype = {
           // If summary object is not found/created, nothing else to do
           if(summary===undefined) return;
 
+          summary.sourceDescr = facetDescr;
+
           if(facetDescr.catSplit){
             summary.setCatSplit(facetDescr.catSplit);
           }
@@ -4733,8 +6116,6 @@ kshf.Browser.prototype = {
               summary.setScaleType(facetDescr.scaleType,true);
             }
           }
-
-          summary.sourceDescr = facetDescr;
         },this);
 
         this.panels.left.updateWidth_MeasureLabel();
@@ -4786,7 +6167,7 @@ kshf.Browser.prototype = {
         this.panels.left.setWidthCatBars(this.options.barChartWidth || defaultBarChartWidth);
         this.panels.right.setWidthCatBars(this.options.barChartWidth || defaultBarChartWidth);
         this.panels.middle.setWidthCatBars(this.options.barChartWidth || defaultBarChartWidth);
-        this.panels.bottom.updateSummariesWidth(this.options.barChartWidth || defaultBarChartWidth);
+        this.panels.bottom.updateSummariesWidth();
 
         this.updateMiddlePanelWidth();
 
@@ -4804,25 +6185,23 @@ kshf.Browser.prototype = {
 
         this.reorderNuggetList();
 
-        if(this.recordDisplay.displayType==='nodelink'){
-          this.recordDisplay.initializeNetwork();
+        if(this.recordDisplay.viewRecAs==='nodelink'){
+          this.recordDisplay.nodelink_restart();
         }
 
         if(this.onReady) this.onReady();
 
         if(this.helpin) {
-          this.DOM.showHelpIn[0][0].tipsy.show();
-          setTimeout(function(){ me.DOM.showHelpIn[0][0].tipsy.hide(); }, 5000);
+          this.DOM.showHelpIn.node().tipsy.show();
+          setTimeout(function(){ me.DOM.showHelpIn.node().tipsy.hide(); }, 5000);
         }
 
         this.finalized = true;
 
         setTimeout(function(){ 
           if(me.options.enableAuthoring) me.enableAuthoring(true);
-          if(me.recordDisplay.displayType==='map'){
-            setTimeout(function(){ 
-              me.recordDisplay.map_zoomToActive();
-            }, 1000);
+          if(me.recordDisplay.viewRecAs==='map'){
+            setTimeout(function(){ me.recordDisplay.recMap_zoomToActive(); }, 1000);
           }
           me.setNoAnim(false);
         },1000);
@@ -4908,10 +6287,8 @@ kshf.Browser.prototype = {
         longName+=filter.getRichText();
       });
 
-      var aggr = new kshf.Aggregate();
       var catId = summary._aggrs.length;
-      aggr.init({ id: catId, name: longName},"id");
-      aggr.summary = summary;
+      var aggr = new kshf.Aggregate_Category(summary, { id: catId, name: longName},"id");
       this.allAggregates.push(aggr);
 
       var multiValued_New = false;
@@ -5005,11 +6382,12 @@ kshf.Browser.prototype = {
     /** -- */
     updateAfterFilter: function(){
       kshf.browser = this;
-      this.clearSelect_Compare('A',true);
-      this.clearSelect_Compare('B',true);
-      this.clearSelect_Compare('C',true);
+      this.clearSelect_Compare('A');
+      this.clearSelect_Compare('B');
+      this.clearSelect_Compare('C');
       this.summaries.forEach(function(summary){ summary.updateAfterFilter(); });
       this.recordDisplay.updateAfterFilter();
+      this.needToRefreshLayout = true;
     },
     /** -- */
     isFiltered: function(){
@@ -5026,7 +6404,7 @@ kshf.Browser.prototype = {
       this.DOM.root.attr("relativeMode",how?how:null);
       this.setPercentLabelMode(how);
       this.summaries.forEach(function(summary){ summary.refreshViz_All(); });
-      this.refreshMeasureLabels();
+      this.refreshMeasureLabels("Active");
       this.refreshTotalViz();
     },
     /** -- */
@@ -5075,9 +6453,11 @@ kshf.Browser.prototype = {
     setSelect_Compare: function(noReclick, _copy){
       var selAggregate = this.selectedAggr.Highlight;
 
+      if(selAggregate===undefined) return;
+
       if(selAggregate.compared){
         var x=selAggregate.compared;
-        this.clearSelect_Compare(selAggregate.compared, true);
+        this.clearSelect_Compare(selAggregate.compared);
         if(noReclick){
           this["crumb_Compare_"+x].removeCrumb(); 
           return;
@@ -5126,6 +6506,8 @@ kshf.Browser.prototype = {
 
       this.refreshTotalViz();
 
+      this.clearSelect_Highlight(true);
+
       this["crumb_"+compId].showCrumb(selAggregate.summary);
 
       if(this.helpin){
@@ -5154,13 +6536,16 @@ kshf.Browser.prototype = {
 
       // if the crumb is shown, start the hide timeout
       if(this.highlightCrumbTimeout_Hide) clearTimeout(this.highlightCrumbTimeout_Hide);
-      this.highlightCrumbTimeout_Hide = setTimeout(function(){ 
-        me.crumb_Highlight.removeCrumb();
-        this.highlightCrumbTimeout_Hide = undefined;
-      },now?0:1000);
+      if(now){
+        me.crumb_Highlight.removeCrumb(now);
+      } else {
+        this.highlightCrumbTimeout_Hide = setTimeout(function(){ 
+          this.highlightCrumbTimeout_Hide = undefined;
+          me.crumb_Highlight.removeCrumb();
+        },1000);
+      }
 
       this.refreshMeasureLabels("Active");
-
     },
     /** -- */
     setSelect_Highlight: function(selAggregate){
@@ -5189,6 +6574,14 @@ kshf.Browser.prototype = {
         case 'Count': return "";
         case 'Sum'  : return "Total "  +this.measureSummary.summaryName+" of ";
         case 'Avg'  : return "Average "+this.measureSummary.summaryName+" of ";
+      }
+    },
+    /** -- */
+    getMeasureFuncTypeText_Brief: function(){
+      switch(this.measureFunc){
+        case 'Count': return this.recordName;
+        case 'Sum'  : return "Total "  +this.measureSummary.summaryName;
+        case 'Avg'  : return "Average "+this.measureSummary.summaryName;
       }
     },
     /** metricType: "Sum" or "Avg" */
@@ -5253,13 +6646,15 @@ kshf.Browser.prototype = {
       this.refreshTotalViz();
     },
     /** -- */
+    getHeight_PanelBasic: function(){
+      return Math.max(parseInt(this.DOM.panel_Basic.style("height")),24)+6;
+    },
+    /** -- */
     updateLayout_Height: function(){
         var me=this;
         var divHeight_Total = parseInt(this.DOM.root.style("height"));
 
-        var panel_Basic_height = Math.max(parseInt(this.DOM.panel_Basic.style("height")),24)+6;
-
-        divHeight_Total-=panel_Basic_height;
+        divHeight_Total-=this.getHeight_PanelBasic();
 
         // initialize all summaries as not yet processed.
         this.summaries.forEach(function(summary){ if(summary.inBrowser()) summary.heightProcessed = false; });
@@ -5354,23 +6749,27 @@ kshf.Browser.prototype = {
         // Middle Panel
         var midPanelHeight = 0;
         if(this.panels.middle.summaries.length>0){
-            var panelHeight = topPanelsHeight;
-            if(this.recordDisplay.recordViewSummary){
-                panelHeight -= 200; // give 200px fo the list display
+          var panelHeight = topPanelsHeight;
+          if(this.recordDisplay.recordViewSummary){
+            if(this.recordDisplay.collapsed){
+              panelHeight -= this.recordDisplay.DOM.recordDisplayHeader.node().offsetHeight;
             } else {
-                panelHeight -= this.recordDisplay.DOM.root[0][0].offsetHeight;
+              panelHeight -= 200; // give 200px for recordDisplay
             }
-            midPanelHeight = panelHeight - doLayout.call(this,panelHeight, this.panels.middle.summaries);
+          } else {
+            panelHeight -= this.recordDisplay.DOM.root.node().offsetHeight;
+          }
+          midPanelHeight = panelHeight - doLayout.call(this,panelHeight, this.panels.middle.summaries);
         }
         this.panels.middle.DOM.root.style("height",midPanelHeight+"px");
 
         // The part where summary DOM is updated
         this.summaries.forEach(function(summary){ if(summary.inBrowser()) summary.refreshHeight(); });
 
-        if(this.recordDisplay){
+        if(this.recordDisplay && !this.recordDisplay.collapsed){
           // get height of header
           var listDisplayHeight = divHeight_Total
-            - this.recordDisplay.DOM.recordDisplayHeader[0][0].offsetHeight 
+            - this.recordDisplay.DOM.recordDisplayHeader.node().offsetHeight 
             - midPanelHeight 
             - bottomPanelHeight;
           if(this.showDropZones && this.panels.middle.summaries.length===0) listDisplayHeight*=0.5;
@@ -5400,7 +6799,7 @@ kshf.Browser.prototype = {
 
       this.DOM.middleColumn.style("width",widthMiddlePanel+"px");
 
-      if(this.recordDisplay) this.recordDisplay.refreshWidth(widthMiddlePanel);
+      if(this.recordDisplay) this.recordDisplay.setWidth(widthMiddlePanel);
     },
     /** -- */
     getTickLabel: function(_val){
@@ -5422,26 +6821,15 @@ kshf.Browser.prototype = {
       if(!(aggr instanceof kshf.Aggregate)){
         _val = aggr;
       } else {
-        //if(!aggr.isVisible) return "";
-        if(this.measureLabelType){
-          _val = aggr.measure(this.measureLabelType);
-          if(this.preview_not){
-            _val = aggr.measure('Total')-_val;
-          }
-        } else {
-          if(summary && summary === this.highlightSelectedSummary && !summary.isMultiValued){
-            _val = aggr.measure('Active');
-          } else {
-            _val = this.vizActive.Highlight?
-              (this.preview_not? aggr._measure.Active - aggr._measure.Highlight : aggr.measure('Highlight') ) :
-              aggr.measure('Active');
-          }
+        _val = aggr.measure(this.measureLabelType);
+        if(this.preview_not){
+          _val = this.ratioModeActive ? (aggr.measure('Active')-_val) : (aggr.measure('Total')-_val);
         }
         if(this.percentModeActive){
           // Cannot be Avg-function
           if(aggr._measure.Active===0) return "";
           if(this.ratioModeActive){
-            if(this.measureLabelType===undefined && !this.vizActive.Highlight) return "";
+            if(this.measureLabelType==="Active") return "";
             _val = 100*_val/aggr._measure.Active;
           } else {
             _val = 100*_val/this.allRecordsAggr._measure.Active;
@@ -5461,8 +6849,10 @@ kshf.Browser.prototype = {
         }
       } else if(this.measureSummary){
         // Print with the measure summary unit
-        return this.measureSummary.printWithUnitName(kshf.Util.formatForItemCount(
-          _val),(aggr.DOM && aggr.DOM.aggrGlyph.nodeName==="g") );
+        return this.measureSummary.printWithUnitName(
+          kshf.Util.formatForItemCount(_val),
+          (aggr.DOM && aggr.DOM.aggrGlyph.nodeName==="g")
+        );
       } else {
         return kshf.Util.formatForItemCount(_val);
       }
@@ -5516,16 +6906,15 @@ kshf.Summary_Base.prototype = {
     this.summaryColumn = attribFunc?null:name;
     this.summaryFunc   = attribFunc || function(){ return this[name]; };
 
-    this.missingValueAggr = new kshf.Aggregate_EmptyRecords();
-    this.missingValueAggr.init();
-    this.missingValueAggr.summary = this;
+    this.missingValueAggr = new kshf.Aggregate_EmptyRecords(this);
     this.browser.allAggregates.push(this.missingValueAggr);
 
     this.DOM = { inited: false};
 
     if(kshf.Summary_Set && this instanceof kshf.Summary_Set) return;
 
-    this.chartScale_Measure = d3.scale.linear().clamp(true);
+    this.chartScale_Measure      = d3.scaleLinear().clamp(true);
+    this.chartScale_Measure_prev = d3.scaleLinear().clamp(true);
 
     this.records = this.browser.records;
     if(this.records===undefined||this.records===null||this.records.length===0){
@@ -5580,9 +6969,6 @@ kshf.Summary_Base.prototype = {
       if(!this.aggr_initialized) return str+=" uninitialized";
       if(this.isTimeStamp()) return "interval time";
       return "interval numeric";
-      //
-      if(this.hasFloat) return "floating";
-      return "integer";
     }
     return "?";
   },
@@ -5596,7 +6982,7 @@ kshf.Summary_Base.prototype = {
   },
   /** -- */
   clearDOM: function(){
-    var dom = this.DOM.root[0][0];
+    var dom = this.DOM.root.node();
     dom.parentNode.removeChild(dom);
   },
   /** -- */
@@ -5611,7 +6997,7 @@ kshf.Summary_Base.prototype = {
   getHeight_Header: function(){
     if(!this.DOM.inited) return 0;
     if(this._height_header==undefined) {
-      this._height_header = this.DOM.headerGroup[0][0].offsetHeight;
+      this._height_header = this.DOM.headerGroup.node().offsetHeight;
     }
     return this._height_header;
   },
@@ -5638,12 +7024,12 @@ kshf.Summary_Base.prototype = {
   /** returns the maximum active aggregate value per row in chart data */
   getMaxAggr: function(sType){
     if(this._aggrs===undefined || this.isEmpty()) return 0;
-    return d3.max(this._aggrs, function(aggr){ return aggr.measure(sType); }) || 1;
+    return d3.max(this._aggrs, function(aggr){ if(aggr.usedAggr) return aggr.measure(sType); }) || 1;
   },
   /** returns the maximum active aggregate value per row in chart data */
   getMinAggr: function(sType){
     if(this._aggrs===undefined || this.isEmpty()) return 0;
-    return d3.min(this._aggrs, function(aggr){ return aggr.measure(sType); });
+    return d3.min(this._aggrs, function(aggr){ if(aggr.usedAggr) return aggr.measure(sType); });
   },
   /** -- */
   getMaxAggr_All: function(){
@@ -5683,19 +7069,19 @@ kshf.Summary_Base.prototype = {
       this.panel.summaries.forEach(function(s,i){ if(s===this) curIndex = i; },this);
       // inserting the summary to the same index as current one
       if(curIndex===index) return;
-      var toRemove=this.panel.DOM.root.selectAll(".dropZone_between_wrapper")[0][curIndex];
+      var toRemove=this.panel.DOM.root.selectAll(".dropZone_between_wrapper")._groups[0][curIndex];
       toRemove.parentNode.removeChild(toRemove);
     }
-    var beforeDOM = this.panel.DOM.root.selectAll(".dropZone_between_wrapper")[0][index];
+    var beforeDOM = this.panel.DOM.root.selectAll(".dropZone_between_wrapper")._groups[0][index];
     if(this.DOM.root){
       this.DOM.root.style("display","");
-      panel.DOM.root[0][0].insertBefore(this.DOM.root[0][0],beforeDOM);
+      panel.DOM.root.node().insertBefore(this.DOM.root.node(),beforeDOM);
     } else {
       this.initDOM(beforeDOM);
     }
     panel.addSummary(this,index);
     this.panel.refreshDropZoneIndex();
-    this.refreshNuggetDisplay();
+    this.refreshThumbDisplay();
 
     if(this.type=="categorical"){
       this.refreshLabelWidth();
@@ -5711,16 +7097,16 @@ kshf.Summary_Base.prototype = {
   removeFromPanel: function(){
     if(this.panel===undefined) return;
     this.panel.removeSummary(this);
-    this.refreshNuggetDisplay();
+    this.refreshThumbDisplay();
   },
   /** -- */
   destroy: function(){
     this.browser.destroySummary(this);
     if(this.DOM.root){
-      this.DOM.root[0][0].parentNode.removeChild(this.DOM.root[0][0]);
+      this.DOM.root.node().parentNode.removeChild(this.DOM.root.node());
     }
     if(this.DOM.nugget){
-      this.DOM.nugget[0][0].parentNode.removeChild(this.DOM.nugget[0][0]);
+      this.DOM.nugget.node().parentNode.removeChild(this.DOM.nugget.node());
     }
   },
   /** -- */
@@ -5739,7 +7125,7 @@ kshf.Summary_Base.prototype = {
         return "edited";
       })
       .attr("datatype", this.getDataType() )
-      .attr("aggr_initialized", this.aggr_initialized )
+      .attr("aggr_initialized", this.aggr_initialized?true:null )
       .on("dblclick",function(){
         me.browser.autoAddSummary(me);
         me.browser.updateLayout();
@@ -5762,9 +7148,9 @@ kshf.Summary_Base.prototype = {
               me.browser.prepareDropZones(me,"attributePanel");
               me.attribMoved = true;
             }
-            var mousePos = d3.mouse(me.browser.DOM.root[0][0]);
-            kshf.Util.setTransform(me.browser.DOM.attribDragBox[0][0],
-                "translate("+(mousePos[0]-20)+"px,"+(mousePos[1]+5)+"px)");
+            var mousePos = d3.mouse(me.browser.DOM.root.node());
+            me.browser.DOM.attribDragBox.style("transform",
+              "translate("+(mousePos[0]-20)+"px,"+(mousePos[1]+5)+"px)");
             d3.event.stopPropagation();
             d3.event.preventDefault();
           })
@@ -5811,7 +7197,7 @@ kshf.Summary_Base.prototype = {
 
         var parentDOM = d3.select(this.parentNode);
         var summaryName = parentDOM.select(".summaryName");
-        var summaryName_DOM = parentDOM.select(".summaryName")[0][0];
+        var summaryName_DOM = parentDOM.select(".summaryName").node();
 
         var curState=this.parentNode.getAttribute("edittitle");
         if(curState===null || curState==="false"){
@@ -5881,9 +7267,6 @@ kshf.Summary_Base.prototype = {
         if(catSplit!==null){
           me.setCatSplit(catSplit);
         }
-        // stop dragging event start
-        d3.event.stopPropagation();
-        d3.event.preventDefault();
       });
 
     X.append("div").attr("class","addFromAttribute_Button fa fa-plus-square")
@@ -5928,7 +7311,7 @@ kshf.Summary_Base.prototype = {
         }
       });
 
-    this.refreshNuggetDisplay();
+    this.refreshThumbDisplay();
     if(this.aggr_initialized) this.refreshViz_Nugget();
   },
   /** -- */
@@ -5946,7 +7329,7 @@ kshf.Summary_Base.prototype = {
     this.style.display = "none";
   },
   /** -- */
-  refreshNuggetDisplay: function(){
+  refreshThumbDisplay: function(){
     if(this.DOM.nugget===undefined) return;
     var me=this;
     var nuggetHidden = (this.panel||this.isRecordView);
@@ -6002,8 +7385,8 @@ kshf.Summary_Base.prototype = {
               me.browser.prepareDropZones(me,"browser");
               moved = true;
             }
-            var mousePos = d3.mouse(me.browser.DOM.root[0][0]);
-            kshf.Util.setTransform(me.browser.DOM.attribDragBox[0][0],
+            var mousePos = d3.mouse(me.browser.DOM.root.node());
+            me.browser.DOM.attribDragBox.style("transform",
               "translate("+(mousePos[0]-20)+"px,"+(mousePos[1]+5)+"px)");
             d3.event.stopPropagation();
             d3.event.preventDefault();
@@ -6022,6 +7405,21 @@ kshf.Summary_Base.prototype = {
       });
 
     var header_display_control = this.DOM.headerGroup.append("span").attr("class","header_display_control");
+
+    this.DOM.buttonSummaryRemove = header_display_control.append("span")
+      .attr("class","buttonSummaryRemove fa fa-times-circle-o")
+      .each(function(){
+        this.tipsy = new Tipsy(this, {
+          gravity: function(){ return me.panelOrder!==0?'sw':'nw'; }, title: kshf.lang.cur.RemoveSummary
+        });
+      })
+      .on("mouseenter", function(){ this.tipsy.show(); })
+      .on("mouseleave", function(){ this.tipsy.hide(); })
+      .on("click",      function(){ this.tipsy.hide();
+        me.removeFromPanel();
+        me.clearDOM();
+        me.browser.updateLayout();
+      });
 
     this.DOM.buttonSummaryCollapse = header_display_control.append("span")
       .attr("class","buttonSummaryCollapse fa fa-compress")
@@ -6073,21 +7471,6 @@ kshf.Summary_Base.prototype = {
         me.browser.updateLayout_Height();
       });
 
-    this.DOM.buttonSummaryRemove = header_display_control.append("span")
-      .attr("class","buttonSummaryRemove fa fa-remove")
-      .each(function(){
-        this.tipsy = new Tipsy(this, {
-          gravity: function(){ return me.panelOrder!==0?'sw':'nw'; }, title: kshf.lang.cur.RemoveSummary
-        });
-      })
-      .on("mouseenter", function(){ this.tipsy.show(); })
-      .on("mouseleave", function(){ this.tipsy.hide(); })
-      .on("click",      function(){ this.tipsy.hide();
-        me.removeFromPanel();
-        me.clearDOM();
-        me.browser.updateLayout();
-      });
-
     this.DOM.summaryName = this.DOM.headerGroup.append("span")
       .attr("class","summaryName")
       .attr("edittitle",false)
@@ -6119,13 +7502,13 @@ kshf.Summary_Base.prototype = {
         if(curState===null || curState==="false"){
           this.parentNode.setAttribute("edittitle",true);
           var parentDOM = d3.select(this.parentNode);
-          var v=parentDOM.select(".summaryName_text")[0][0];
+          var v=parentDOM.select(".summaryName_text").node();
           v.setAttribute("contenteditable",true);
           v.focus();
         } else {
           this.parentNode.setAttribute("edittitle",false);
           var parentDOM = d3.select(this.parentNode);
-          var v=parentDOM.select(".summaryName_text")[0][0];
+          var v=parentDOM.select(".summaryName_text").node();
           v.setAttribute("contenteditable",false);
           me.browser.changeSummaryName(me.summaryName,v.textContent);
         }
@@ -6165,29 +7548,38 @@ kshf.Summary_Base.prototype = {
         me.DOM.root.attr("showConfig",open?true:null);
       });
 
-    this.DOM.setMatrixButton = this.DOM.summaryIcons.append("span").attr("class", "setMatrixButton fa fa-tags")
+    this.DOM.summaryIcons.append("span").attr("class", "setMatrixButton fa fa-tags")
       .each(function(d){
-        this.tipsy = new Tipsy(this, { gravity: 'ne', title: "Show/Hide pair-wise relations" });
+        this.tipsy = new Tipsy(this, { 
+          gravity: 'ne', 
+          title: function(){ return (!me.show_set_matrix?"Show":"Hide")+" pair-wise relations"; }
+        });
       })
       .on("mouseenter", function(){ this.tipsy.show(); })
       .on("mouseleave", function(){ this.tipsy.hide(); })
       .on("click",      function(){ this.tipsy.hide(); me.setShowSetMatrix(!me.show_set_matrix); });
 
-    this.DOM.useForRecordDisplay = this.DOM.summaryIcons.append("span")
-      .attr("class", "useForRecordDisplay fa")
-      .each(function(d){
+    // These shouldn't be visible if there is not active record display.
+    this.DOM.summaryIcons.selectAll(".encodeRecordButton").data(["sort","scatter","color"])
+      .enter()
+      .append("span")
+      .attr("class", "encodeRecordButton fa")
+      .attr("encodingType",function(t){ return t; })
+      .each(function(t){
         this.tipsy = new Tipsy(this, {
-          gravity: 'ne', title: function(){
-            return "Use to "+me.browser.recordDisplay.getRecordEncoding()+" "+me.browser.recordName;
-          }
+          gravity: 'ne', title: function(){ return "Use to "+t+" "+me.browser.recordName; }
         });
       })
       .on("mouseenter", function(){ this.tipsy.show(); })
       .on("mouseleave", function(){ this.tipsy.hide(); })
-      .on("click",      function(){ this.tipsy.hide();
-        if(me.browser.recordDisplay.recordViewSummary===null) return;
-        me.browser.recordDisplay.setSortingOpt_Active(me);
-        me.browser.recordDisplay.refreshSortingOptions();
+      .on("click",      function(t){ this.tipsy.hide();
+        var recDisplay = me.browser.recordDisplay;
+        if(t==='scatter'){
+          recDisplay.setScatterAttrib(me);
+        } else {
+          recDisplay.setSortingOpt_Active(me);
+          recDisplay.refreshSortingOptions();
+        }
       });
 
     this.DOM.summaryViewAs = this.DOM.summaryIcons.append("span")
@@ -6260,17 +7652,16 @@ kshf.Summary_Base.prototype = {
     this.DOM.chartAxis_Measure_TickGroup = this.DOM.chartAxis_Measure.append("div").attr("class","tickGroup");
 
     this.DOM.highlightedMeasureValue = this.DOM.chartAxis_Measure.append("div").attr("class","highlightedMeasureValue longRefLine");
-
     this.DOM.highlightedMeasureValue.append("div").attr('class','fa fa-mouse-pointer highlightedAggrValuePointer');
   },
   /** -- */
-  setCollapsedAndLayout: function(hide){
-    this.setCollapsed(hide);
+  setCollapsedAndLayout: function(collapsed){
+    this.setCollapsed(collapsed);
     this.browser.updateLayout_Height();
   },
   /** -- */
-  setCollapsed: function(v){
-    this.collapsed = v;
+  setCollapsed: function(collapsed){
+    this.collapsed = collapsed;
     if(this.DOM.root){
       this.DOM.root
         .attr("collapsed",this.collapsed?true:null)
@@ -6307,7 +7698,6 @@ kshf.Summary_Base.prototype = {
       })
       .on("mouseover",function(){
         this.tipsy.show();
-        // TODO: Disable mouse-over action if aggregate has no active item
         me.browser.setSelect_Highlight(me.missingValueAggr);
       })
       .on("mouseout" ,function(){ 
@@ -6315,20 +7705,30 @@ kshf.Summary_Base.prototype = {
         me.browser.clearSelect_Highlight();
       })
       .on("click", function(){
+        if(d3.event.altKey){
+          me.missingValueAggr.filtered = "out";
+          me.summaryFilter.addFilter();
+          return;
+        }
         if(d3.event.shiftKey){
           me.browser.setSelect_Compare(true);
           return;
         }
-        me.summaryFilter.clearFilter();
-        if(me.missingValueAggr.filtered){
-          me.missingValueAggr.filtered = false;
-          this.removeAttribute("filtered");
+        if(me.summaryFilter.isFiltered){
+          if(me.missingValueAggr.filtered){
+            me.summaryFilter.clearFilter();
+          } else {
+            me.summaryFilter.clearFilter();
+            me.missingValueAggr.filtered = "in";
+            me.summaryFilter.how = "All";
+            me.summaryFilter.addFilter();
+          }
         } else {
-          me.missingValueAggr.filtered = true;
-          this.setAttribute("filtered",true);
+          me.missingValueAggr.filtered = "in";
           me.summaryFilter.how = "All";
           me.summaryFilter.addFilter();
         }
+        d3.select(this).classed("filtered",me.missingValueAggr.filtered);
       });
   },
   /** -- */
@@ -6388,7 +7788,7 @@ kshf.Summary_Base.prototype = {
     }
     if(this.minAggrValue>1) config.minAggrValue = this.minAggrValue;
     if(this.unitName) config.unitName = this.unitName;
-    if(this.scaleType_forced) config.intervalScale = this.scaleType_forced;
+    if(this.scaleType_locked) config.intervalScale = this.scaleType_locked;
     if(this.percentileChartVisible) config.showPercentile = this.percentileChartVisible;
     // catSortBy
     if(this.catSortBy){
@@ -6463,7 +7863,7 @@ var Summary_Categorical_functions = {
     var nuggetChart = this.DOM.nugget.select(".nuggetChart");
 
     this.DOM.nugget
-      .attr("aggr_initialized",this.aggr_initialized)
+      .attr("aggr_initialized",this.aggr_initialized?true:null)
       .attr("datatype",this.getDataType());
 
     if(!this.aggr_initialized && !force) return;
@@ -6688,6 +8088,9 @@ var Summary_Categorical_functions = {
         // selected on top of the list
         if(!a.f_selected() &&  b.f_selected()) return  1;
         if( a.f_selected() && !b.f_selected()) return -1;
+        // usedAggr === false => on the bottom
+        if(!a.usedAggr &&  b.usedAggr) return  1;
+        if( a.usedAggr && !b.usedAggr) return -1;
         // Rest
         var x = b.measure('Active') - a.measure('Active');
         if(x===0) x = b.measure('Total') - a.measure('Total');
@@ -6786,136 +8189,10 @@ var Summary_Categorical_functions = {
       this.refreshViz_Nugget();
     }
   },
-
   /** -- */
   createSummaryFilter: function(){
-    var me=this;
-    this.summaryFilter = this.browser.createFilter(
-      {
-        summary: this,
-        title: function(){ return me.summaryName },
-        onClear: function(){
-          me.clearCatTextSearch();
-          me.unselectAllCategories();
-          me._update_Selected();
-        },
-        onFilter: function(){
-          // at least one category is selected in some modality (and/ or/ not)
-          me._update_Selected();
-
-          me.records.forEach(function(record){
-            var recordVal_s = record._valueCache[me.summaryID];
-            if(me.missingValueAggr.filtered===true){
-              record.setFilterCache(this.filterID, recordVal_s===null);
-              return;
-            }
-            if(recordVal_s===null){
-              // survives if AND and OR is not selected
-              record.setFilterCache(this.filterID, this.selected_AND.length===0 && this.selected_OR.length===0 );
-              return;
-            }
-
-            // Check NOT selections - If any mapped record is NOT, return false
-            // Note: no other filtering depends on NOT state.
-            // This is for ,multi-level filtering using not query
-/*            if(this.selected_NOT.length>0){
-                if(!recordVal_s.every(function(record){
-                    return !record.is_NOT() && record.isWanted;
-                })){
-                    record.setFilterCache(this.filterID,false); return;
-                }
-            }*/
-
-            function getAggr(v){ return me.catTable_id[v]; };
-
-            // If any of the record values are selected with NOT, the record will be removed
-            if(this.selected_NOT.length>0){
-              if(!recordVal_s.every(function(v){ return !getAggr(v).is_NOT(); })){
-                record.setFilterCache(this.filterID,false); return;
-              }
-            }
-            // All AND selections must be among the record values
-            if(this.selected_AND.length>0){
-              var t=0; // Compute the number of record values selected with AND.
-              recordVal_s.forEach(function(v){ if(getAggr(v).is_AND()) t++; })
-              if(t!==this.selected_AND.length){
-                record.setFilterCache(this.filterID,false); return;
-              }
-            }
-            // One of the OR selections must be among the record values
-            // Check OR selections - If any mapped record is OR, return true
-            if(this.selected_OR.length>0){
-              record.setFilterCache(this.filterID, recordVal_s.some(function(v){return (getAggr(v).is_OR());}) );
-              return;
-            }
-            // only NOT selection
-            record.setFilterCache(this.filterID,true);
-          }, this);
-        },
-        filterView_Detail: function(){
-          if(me.missingValueAggr.filtered===true) return kshf.lang.cur.NoData;
-          // 'this' is the Filter
-          // go over all records and prepare the list
-          var selectedItemsText="";
-
-          var catTooltip = me.catTooltip;
-
-          var totalSelectionCount = this.selectedCount_Total();
-
-          var query_and = " <span class='AndOrNot AndOrNot_And'>"+kshf.lang.cur.And+"</span> ";
-          var query_or = " <span class='AndOrNot AndOrNot_Or'>"+kshf.lang.cur.Or+"</span> ";
-          var query_not = " <span class='AndOrNot AndOrNot_Not'>"+kshf.lang.cur.Not+"</span> ";
-
-          if(totalSelectionCount>4){
-            selectedItemsText = "<b>"+totalSelectionCount+"</b> selected";
-            // Note: Using selected because selections can include not, or,and etc (a variety of things)
-          } else {
-            var selectedItemsCount=0;
-
-            // OR selections
-            if(this.selected_OR.length>0){
-              var useBracket_or = this.selected_AND.length>0 || this.selected_NOT.length>0;
-              if(useBracket_or) selectedItemsText+="[";
-              // X or Y or ....
-              this.selected_OR.forEach(function(category,i){
-                selectedItemsText+=((i!==0 || selectedItemsCount>0)?query_or:"")+"<span class='attribName'>"
-                    +me.catLabel_Func.call(category.data)+"</span>";
-                selectedItemsCount++;
-              });
-              if(useBracket_or) selectedItemsText+="]";
-            }
-            // AND selections
-            this.selected_AND.forEach(function(category,i){
-              selectedItemsText+=((selectedItemsText!=="")?query_and:"")
-                  +"<span class='attribName'>"+me.catLabel_Func.call(category.data)+"</span>";
-              selectedItemsCount++;
-            });
-            // NOT selections
-            this.selected_NOT.forEach(function(category,i){
-              selectedItemsText+=query_not+"<span class='attribName'>"+me.catLabel_Func.call(category.data)+"</span>";
-              selectedItemsCount++;
-            });
-          }
-          return selectedItemsText;
-        }
-    });
-
-    this.summaryFilter.selected_AND = [];
-    this.summaryFilter.selected_OR = [];
-    this.summaryFilter.selected_NOT = [];
-    this.summaryFilter.selectedCount_Total = function(){
-      return this.selected_AND.length + this.selected_OR.length + this.selected_NOT.length;
-    };
-    this.summaryFilter.selected_Any = function(){
-      return this.selected_AND.length>0 || this.selected_OR.length>0 || this.selected_NOT.length>0;
-    };
-    this.summaryFilter.selected_All_clear = function(){
-      kshf.Util.clearArray(this.selected_AND);
-      kshf.Util.clearArray(this.selected_OR);
-      kshf.Util.clearArray(this.selected_NOT);
-    };
+    this.summaryFilter = this.browser.createFilter('categorical',this);
   },
-
   /** --
    * Note: accesses summaryFilter, summaryFunc
    */
@@ -6927,9 +8204,8 @@ var Summary_Categorical_functions = {
     // Converting from kshf.Record to kshf.Aggregate
     if(kshf.dt[this.catTableName] && kshf.dt[this.catTableName][0] instanceof kshf.Record ){
       kshf.dt[this.catTableName].forEach(function(record){
-        var aggr = new kshf.Aggregate();
-        aggr.init(record.data,record.idIndex);
-        aggr.summary = this;
+        var aggr = new kshf.Aggregate_Category(this, record.data, record.idIndex);
+
         aggrTable_id[aggr.id()] = aggr;
         aggrTable.push(aggr);
         this.browser.allAggregates.push(aggr);
@@ -6955,6 +8231,11 @@ var Summary_Categorical_functions = {
       // make mapping an array if it is not
       if(!(mapping instanceof Array)) mapping = [mapping];
 
+      mapping.forEach(function(d,i){
+        var v = mapping[i];
+        if(v && typeof v === 'string') mapping[i] = v.trim();
+      });
+
       // Filter invalid / duplicate values
       var found = {};
       mapping = mapping.filter(function(e){
@@ -6979,9 +8260,7 @@ var Summary_Categorical_functions = {
 
         var aggr = aggrTable_id[v];
         if(aggr==undefined) {
-          aggr = new kshf.Aggregate();
-          aggr.summary = this;
-          aggr.init({id:v},'id');
+          aggr = new kshf.Aggregate_Category(this, {id:v}, 'id');
           aggrTable_id[v] = aggr;
           this._aggrs.push(aggr);
           this.browser.allAggregates.push(aggr);
@@ -7057,7 +8336,7 @@ var Summary_Categorical_functions = {
 
     this.insertRoot(beforeDOM);
 
-    this.DOM.root.attr({
+    this.DOM.root.attrs({
       filtered_or: 0,
       filtered_and: 0,
       filtered_not: 0,
@@ -7076,7 +8355,7 @@ var Summary_Categorical_functions = {
     this.DOM.summaryConfig_CatHeight = this.DOM.summaryConfig.append("div")
       .attr("class","summaryConfig_CatHeight summaryConfig_Option");
     this.DOM.summaryConfig_CatHeight.append("span").html("<i class='fa fa-arrows-v'></i> Row Height: ");
-    x = this.DOM.summaryConfig_CatHeight.append("span").attr("class","optionGroup");
+    var x = this.DOM.summaryConfig_CatHeight.append("span").attr("class","optionGroup");
     x.selectAll(".configOption").data(
       [ 
         {l:"<i class='fa fa-minus'></i>", v: "minus"},
@@ -7127,7 +8406,7 @@ var Summary_Categorical_functions = {
         })
         .on("scroll",function(){
           if(kshf.Util.ignoreScrollEvents===true) return;
-          me.scrollTop_cache = me.DOM.aggrGroup[0][0].scrollTop;
+          me.scrollTop_cache = me.DOM.aggrGroup.node().scrollTop;
 
           me.DOM.scrollToTop.style("visibility", me.scrollTop_cache>0?"visible":"hidden");
 
@@ -7153,11 +8432,11 @@ var Summary_Categorical_functions = {
           me.browser.DOM.pointerBlock.attr("active","");
           me.browser.DOM.root.style('cursor','col-resize');
           me.browser.setNoAnim(true);
-          var mouseDown_x = d3.mouse(d3.select("body")[0][0])[0];
+          var mouseDown_x = d3.mouse(d3.select("body").node())[0];
           var initWidth = me.panel.width_catLabel;
 
           d3.select("body").on("mousemove", function() {
-            var mouseDown_x_diff = d3.mouse(d3.select("body")[0][0])[0]-mouseDown_x;
+            var mouseDown_x_diff = d3.mouse(d3.select("body").node())[0]-mouseDown_x;
             me.panel.setWidthCatLabel(initWidth+mouseDown_x_diff);
           }).on("mouseup", function(){
             me.panel.DOM.root.attr("catLabelDragging",false);
@@ -7177,7 +8456,7 @@ var Summary_Categorical_functions = {
         .attr("class","hasLabelWidth scroll_display_more")
         .on("click",function(){
           kshf.Util.scrollToPos_do(
-            me.DOM.aggrGroup, me.DOM.aggrGroup[0][0].scrollTop+me.heightCat);
+            me.DOM.aggrGroup, me.DOM.aggrGroup.node().scrollTop+me.heightCat);
         });
 
       this.insertCategories();
@@ -7307,7 +8586,7 @@ var Summary_Categorical_functions = {
     /** -- */
     _update_Selected: function(){
       if(this.DOM.root) {
-        this.DOM.root.attr({
+        this.DOM.root.attrs({
           "filtered":     this.isFiltered()?"true":null,
           "filtered_or":  this.summaryFilter.selected_OR .length,
           "filtered_and": this.summaryFilter.selected_AND.length,
@@ -7321,15 +8600,16 @@ var Summary_Categorical_functions = {
         if(aggr.f_selected() && aggr.DOM.aggrGlyph) aggr.DOM.aggrGlyph.removeAttribute("catselect");
         aggr.set_NONE();
       });
-      this.summaryFilter.selected_All_clear();
-      if(this.DOM.inited) this.DOM.missingValueAggr.attr("filtered",null);
+      // TODO: Check why this can cause a problem
+      if(this.summaryFilter.selected_All_clear) this.summaryFilter.selected_All_clear();
+      if(this.DOM.inited) this.DOM.missingValueAggr.classed("filtered",false);
     },
     /** -- */
     clearCatTextSearch: function(){
       if(!this.showTextSearch) return;
       if(this.skipTextSearchClear) return;
       this.DOM.catTextSearchControl.attr("showClear",false);
-      this.DOM.catTextSearchInput[0][0].value = '';
+      this.DOM.catTextSearchInput.node().value = '';
     },
     /** -- */
     updateChartScale_Measure: function(){
@@ -7339,11 +8619,17 @@ var Summary_Categorical_functions = {
       if(this.browser.measureFunc!=="Count" && this.browser.measureSummary.intervalRange.org.min<0){
         minMeasureValue = this.getMinAggr_All();
       }
+
+      this.chartScale_Measure_prev
+        .domain(this.chartScale_Measure.domain())
+        .range (this.chartScale_Measure.range() )
+        .nice(this.chartAxis_Measure_TickSkip() )
+        .clamp(false);
+
       this.chartScale_Measure
         .domain([minMeasureValue, maxMeasureValue])
         .range([0, this.getWidth_CatChart()])
-        .nice(this.chartAxis_Measure_TickSkip())
-        ;
+        .nice(this.chartAxis_Measure_TickSkip());
       this.refreshViz_All();
     },
     /** -- */
@@ -7355,8 +8641,6 @@ var Summary_Categorical_functions = {
       newHeight -= this.getHeight_Header()+this.getHeight_Config()+this.getHeight_Bottom();
       if(this.viewType==='map'){
         this.categoriesHeight = newHeight;
-        if(this.categoriesHeight!==attribHeight_old)
-          setTimeout(function(){ me.map_zoomToActive();}, 1000);
         return;
       }
 
@@ -7401,8 +8685,8 @@ var Summary_Categorical_functions = {
 
       this.browser.updateLayout();
 
-      this.DOM.aggrGlyphs.each(function(aggr){
-        kshf.Util.setTransform(this, "translate("+aggr.posX+"px,"+(me.heightCat*aggr.orderIndex)+"px)");
+      this.DOM.aggrGlyphs.style("transform",function(aggr){
+        return "translate("+aggr.posX+"px,"+(me.heightCat*aggr.orderIndex)+"px)";
       });
 
       this.refreshHeight_Category_do();
@@ -7418,8 +8702,6 @@ var Summary_Categorical_functions = {
       
       if(this.viewType==='map'){
         this.updateCatCount_Active();
-        //this.map_refreshBounds_Active();
-        //setTimeout(function(){ me.map_zoomToActive(); }, 1000);
         this.refreshMeasureLabel();
         this.refreshViz_Active();
         return;
@@ -7452,46 +8734,62 @@ var Summary_Categorical_functions = {
     },
     /** -- */
     refreshViz_Total: function(){
-      if(this.isEmpty() || this.collapsed) return;
-      if(this.viewType==='map') return; // Maps do not display total distribution.
-      if(this.browser.ratioModeActive){
-        // Do not need to update total. Total value is invisible. Percent view is based on active count.
-        this.DOM.measureTotalTip.style("opacity",0);
-      } else {
-        var me = this;
-        var width_Text = this.getWidth_TotalText();
+      if(this.isEmpty() || this.collapsed || this.viewType==='map') return;
+      var me = this;
+      var width_Text = this.getWidth_TotalText();
 
-        var zeroPos = this.chartScale_Measure(0);
-        this.DOM.measure_Total.each(function(_cat){
-          kshf.Util.setTransform(this, 
-            "translateX("+(width_Text+zeroPos)+"px) "+
-            "scaleX("+(me.chartScale_Measure(_cat.measure('Total'))-zeroPos)+")");
+      var maxWidth = this.chartScale_Measure.range()[1];
+      var ratioMode = this.browser.ratioModeActive;
+      var zeroPos = this.chartScale_Measure(0);
+
+      this.DOM.measure_Total
+        .style("opacity",ratioMode?0.5:null)
+        .style("transform",function(_cat){
+          var _h = ratioMode ? maxWidth : me.chartScale_Measure(_cat.measure('Total'));
+          return "translateX("+(width_Text+zeroPos)+"px) "+"scaleX("+(_h-zeroPos)+")";
         });
-        this.DOM.measureTotalTip
-          .each(function(_cat){
-            kshf.Util.setTransform(this, "translateX("+(me.chartScale_Measure.range()[1]+width_Text)+"px)");
-          })
-          .style("opacity",function(_cat){
-            return (_cat.measure('Total')>me.chartScale_Measure.domain()[1])?1:0;
-          });
-      }
+      this.DOM.measureTotalTip
+        .style("transform", "translateX("+(me.chartScale_Measure.range()[1]+width_Text)+"px)")
+        .style("opacity",function(_cat){
+          if(ratioMode) return 0;
+          return (_cat.measure('Total')>me.chartScale_Measure.domain()[1])?1:0;
+        });
     },
     /** -- */
     setShowSetMatrix: function(v){
       this.show_set_matrix = v;
       this.DOM.root.attr("show_set_matrix",this.show_set_matrix);
 
-      if(this.setSummary===undefined){
-        this.setSummary = new kshf.Summary_Set();
-        this.setSummary.initialize(this.browser,this);
-        this.browser.summaries.push(this.setSummary);
+      if(this.show_set_matrix){
+        if(this.setSummary===undefined){
+          this.setSummary = new kshf.Summary_Set();
+          this.setSummary.initialize(this.browser,this);
+          this.browser.summaries.push(this.setSummary);
+        } else {
+          this.setSummary.prepareSetMatrixSorting();
+        }
+      } else {
+        // remove sorting option
+        this.catSortBy = this.catSortBy.filter(function(sortingOpt){
+          return sortingOpt.name !== "Relatedness";
+        });
+
+        this.catSortBy_Active = this.catSortBy[0];
+        this.refreshCatSortOptions();
+        this.refreshSortButton();
+        this.updateCatSorting(0,true);
+
+        this.onCatSort = undefined;
       }
     },
     /** -- */
     refreshMapColorScaleBounds: function(boundMin, boundMax){
       if(boundMin===undefined && boundMax===undefined){
         var maxAggr_Active = this.getMaxAggr('Active');
-        if(this.browser.ratioModeActive || this.browser.percentModeActive){
+        if(this.browser.ratioModeActive){
+          boundMin = 0;
+          boundMax = 100;
+        } else if(this.browser.percentModeActive){
           boundMin = 0;
           boundMax = 100*maxAggr_Active/this.browser.allRecordsAggr.measure('Active');
         } else {
@@ -7500,7 +8798,7 @@ var Summary_Categorical_functions = {
         }
       }
       
-      this.mapColorScale = d3.scale.linear().range([0, 9]).domain([boundMin, boundMax]);
+      this.mapColorScale = d3.scaleLinear().range([0, 9]).domain([boundMin, boundMax]);
 
       this.DOM.catMapColorScale.select(".boundMin").html( this.browser.getTickLabel(boundMin) );
       this.DOM.catMapColorScale.select(".boundMax").html( this.browser.getTickLabel(boundMax) );
@@ -7512,7 +8810,6 @@ var Summary_Categorical_functions = {
       var ratioMode = this.browser.ratioModeActive;
 
       if(this.viewType==='map') {
-
         this.refreshMapColorScaleBounds();
 
         var allRecordsAggr_measure_Active = me.browser.allRecordsAggr.measure('Active');
@@ -7543,6 +8840,7 @@ var Summary_Categorical_functions = {
       }
       
       var maxWidth = this.chartScale_Measure.range()[1];
+      var zeroPos = this.chartScale_Measure(0);
       var width_Text = this.getWidth_TotalText();
 
       this.DOM.aggrGlyphs
@@ -7550,13 +8848,11 @@ var Summary_Categorical_functions = {
           return (aggr._measure.Active===0) ? "true" : null
         });
 
-      var zeroPos = this.chartScale_Measure(0);
-
-      this.DOM.measure_Active.each(function(_cat){
-        var scaleX = (ratioMode ? maxWidth: me.chartScale_Measure(_cat.measure('Active'))) ;
+      this.DOM.measure_Active.style("transform",function(_cat){
+        var scaleX = (ratioMode ? zeroPos: me.chartScale_Measure(_cat.measure('Active'))) ;
         if(_cat.recCnt.Active===0) scaleX = 0;
         scaleX-=zeroPos;
-        kshf.Util.setTransform(this,"translateX("+(width_Text+zeroPos)+"px) scaleX("+scaleX+")");
+        return "translateX("+(width_Text+zeroPos)+"px) scaleX("+scaleX+")";
       });
       this.DOM.lockButton
         .style("left",function(_cat){
@@ -7586,12 +8882,10 @@ var Summary_Categorical_functions = {
 
       if(this.browser.vizActive.Highlight){
         if(this.browser.ratioModeActive) {
-          if(this.viewType==='map'){
-            //this.DOM.highlightedMeasureValue.style("left",(100*(this.mapColorScale(aggr.measure.Highlight)/9))+"%");
-          } else {
-            this.DOM.highlightedMeasureValue.style({
+          if(this.viewType!=='map'){
+            this.DOM.highlightedMeasureValue.styles({
               opacity: 1,
-              left: (this.browser.allRecordsAggr.ratioHighlightToTotal()*maxWidth)+"px" });
+              transform: "translateX("+(this.browser.allRecordsAggr.ratioHighlightToTotal()*maxWidth)+"px)" });
           }
         }
       } else {
@@ -7605,15 +8899,17 @@ var Summary_Categorical_functions = {
         }
         if(!isThisIt || this.isMultiValued) {
           var boundMin = ratioMode ? 
-            d3.min(this._aggrs, function(aggr){ 
-              if(aggr.recCnt.Active===0 || aggr.recCnt.Highlight===0) return null;
-              return 100*aggr.ratioHighlightToActive(); }) :
+            d3.min(this._aggrs, function(_cat){ 
+              if(_cat.recCnt.Active===0 || _cat.recCnt.Highlight===0) return null;
+              return 100*_cat.ratioHighlightToActive(); }) :
             1; //d3.min(this._aggrs, function(_cat){ return _cat.measure.Active; }), 
           var boundMax = ratioMode ? 
             d3.max(this._aggrs, function(_cat){ 
               return (_cat._measure.Active===0) ? null : 100*_cat.ratioHighlightToActive();
             }) : 
-            d3.max(this._aggrs, function(_cat){ return _cat.measure('Highlight'); });
+            d3.max(this._aggrs, function(_cat){ 
+              if(_cat.usedAggr) return _cat.measure('Highlight');
+            });
 
           this.refreshMapColorScaleBounds(boundMin, boundMax);
         }
@@ -7643,13 +8939,11 @@ var Summary_Categorical_functions = {
 
         var zeroPos = this.chartScale_Measure(0);
 
-        this.DOM.measure_Highlight.each(function(aggr){
+        this.DOM.measure_Highlight.style("transform",function(aggr){
           var p = aggr.measure('Highlight');
           if(me.browser.preview_not) p = aggr._measure.Active - aggr._measure.Highlight;
           var scaleX = (ratioMode ? ((p/aggr._measure.Active)*maxWidth ) : me.chartScale_Measure(p));
-          kshf.Util.setTransform(this,
-            "translateX("+(width_Text+zeroPos)+"px) translateY(4px)"+
-            "scale("+(scaleX-zeroPos)+","+barHeight+")");
+          return "translateX("+(width_Text+zeroPos)+"px) translateY(4px) scale("+(scaleX-zeroPos)+","+barHeight+")";
         });
       }
     },
@@ -7672,11 +8966,11 @@ var Summary_Categorical_functions = {
       var _translateY = "translateY("+(barHeight*(curGroup+1)+4)+"px)"; // 4pixel is the b=top gap
       var compId = "Compare_"+cT;
 
-      this.DOM["measure_Compare_"+cT].each(function(aggr){
+      this.DOM["measure_Compare_"+cT].style("transform",function(aggr){
         var sx = (me.browser.vizActive[compId])?
           ( ratioMode ? (aggr.ratioCompareToActive(cT)*maxWidth) : me.chartScale_Measure(aggr.measure(compId)) ) : 0;
         sx -= zeroPos;
-        kshf.Util.setTransform(this,_translateX+_translateY+"scale("+sx+","+barHeight+")");
+        return _translateX+_translateY+"scale("+sx+","+barHeight+")";
       });
     },
     /** -- */
@@ -7686,10 +8980,14 @@ var Summary_Categorical_functions = {
       var me=this;
       var tickValues, posFunc, transformFunc;
       var chartWidth = this.getWidth_CatChart();
-      var axis_Scale = this.chartScale_Measure;
+
+      var axis_Scale = d3.scaleLinear()
+        .clamp(false)
+        .domain(this.chartScale_Measure.domain())
+        .range (this.chartScale_Measure.range() );
 
       function setCustomAxis(maxValue){
-        axis_Scale = d3.scale.linear()
+        axis_Scale = d3.scaleLinear()
           .rangeRound([0, chartWidth])
           .nice(me.chartAxis_Measure_TickSkip())
           .clamp(true)
@@ -7715,8 +9013,10 @@ var Summary_Categorical_functions = {
 
       var tickDoms = this.DOM.chartAxis_Measure_TickGroup.selectAll("span.tick")
         .data(tickValues,function(i){return i;});
+      
       // Remove old ones
-      tickDoms.exit().remove();
+      tickDoms.exit().transition().style("opacity",0).transition().remove();
+      
       // Add new ones
       var tickData_new=tickDoms.enter().append("span").attr("class","tick");
 
@@ -7730,24 +9030,19 @@ var Summary_Categorical_functions = {
       }
 
       // Place the doms at the zero-point, so their position can be animated.
-      tickData_new.each(function(){ kshf.Util.setTransform(this,"translatex(0px)"); });
+      tickData_new.style("transform",function(d){
+        return "translateX("+(me.chartScale_Measure_prev(d)-0.5)+"px)";
+      });
 
-      // set text of each label
       this.DOM.chartAxis_Measure_TickGroup.selectAll(".text")
         .html(function(d){ return me.browser.getTickLabel(d); });
 
+      this.DOM.wrapper.attr("showMeasureAxis_2", me.configRowCount>0?"true":null);
       setTimeout(function(){
-        var transformFunc = function(d){
-          kshf.Util.setTransform(this,"translateX("+(axis_Scale(d)-0.5)+"px)");
-        }
-
-        var x=me.browser.noAnim;
-        if(x===false) me.browser.setNoAnim(true);
-        me.DOM.chartAxis_Measure.selectAll(".tick").style("opacity",1).each(transformFunc);
-        if(x===false) me.browser.setNoAnim(false);
-
-        me.DOM.wrapper.attr("showMeasureAxis_2", me.configRowCount>0?"true":null);
-      }, 10 );
+        me.DOM.chartAxis_Measure_TickGroup.selectAll("span.tick")
+          .style("transform",function(d){ return "translateX("+(axis_Scale(d)-0.5)+"px)"; })
+          .style("opacity",1);
+      });
     },
     /** -- */
     refreshLabelWidth: function(){
@@ -7759,14 +9054,12 @@ var Summary_Categorical_functions = {
 
       this.DOM.chartCatLabelResize.style("left",(width_Label+1)+"px");
       this.DOM.summaryCategorical.selectAll(".hasLabelWidth").style("width",width_Label+"px");
-      this.DOM.measureLabel.style({
+      this.DOM.measureLabel.styles({
         left:  width_Label+"px",
         width: this.panel.width_catMeasureLabel+"px"
       });
-      this.DOM.chartAxis_Measure.each(function(){
-        kshf.Util.setTransform(this,"translateX("+width_totalText+"px)");
-      });
-      this.DOM.catSortButton.style({
+      this.DOM.chartAxis_Measure.style("transform","translateX("+width_totalText+"px)");
+      this.DOM.catSortButton.styles({
         left: width_Label+"px",
         width: this.panel.width_catMeasureLabel+"px"
       });
@@ -7826,6 +9119,7 @@ var Summary_Categorical_functions = {
     },
     /** -- */
     isCatActive: function(category){
+      if(!category.usedAggr) return false;
       if(category.f_selected()) return true;
       if(category.recCnt.Active!==0) return true;
       // summary is not filtered yet, don't show categories with no records
@@ -7851,101 +9145,108 @@ var Summary_Categorical_functions = {
      how: MoreResults / LessResults
      */
     filterCategory: function(ctgry, what, how){
-        if(this.browser.skipSortingFacet){
-            // you can now sort the last filtered summary, attention is no longer there.
-            this.browser.skipSortingFacet.dirtySort = false;
-            this.browser.skipSortingFacet.DOM.catSortButton.attr("resort",false);
-        }
-        this.browser.skipSortingFacet=this;
-        this.browser.skipSortingFacet.dirtySort = true;
-        this.browser.skipSortingFacet.DOM.catSortButton.attr("resort",true);
+      if(this.browser.skipSortingFacet){
+        // you can now sort the last filtered summary, attention is no longer there.
+        this.browser.skipSortingFacet.dirtySort = false;
+        this.browser.skipSortingFacet.DOM.catSortButton.attr("resort",false);
+      }
+      this.browser.skipSortingFacet=this;
+      this.browser.skipSortingFacet.dirtySort = true;
+      this.browser.skipSortingFacet.DOM.catSortButton.attr("resort",true);
 
-        var i=0;
+      var i=0;
 
-        var preTest = (this.summaryFilter.selected_OR.length>0 && (this.summaryFilter.selected_AND.length>0 ||
-                this.summaryFilter.selected_NOT.length>0));
+      var preTest = (this.summaryFilter.selected_OR.length>0 && (this.summaryFilter.selected_AND.length>0 ||
+          this.summaryFilter.selected_NOT.length>0));
 
-        // if selection is in same mode, "undo" to NONE.
-        if(what==="NOT" && ctgry.is_NOT()) what = "NONE";
-        if(what==="AND" && ctgry.is_AND()) what = "NONE";
-        if(what==="OR"  && ctgry.is_OR() ) what = "NONE";
+      // if selection is in same mode, "undo" to NONE.
+      if(what==="NOT" && ctgry.is_NOT()) what = "NONE";
+      if(what==="AND" && ctgry.is_AND()) what = "NONE";
+      if(what==="OR"  && ctgry.is_OR() ) what = "NONE";
 
-        if(what==="NONE"){
-            if(ctgry.is_AND() || ctgry.is_NOT()){
-                this.summaryFilter.how = "MoreResults";
-            }
-            if(ctgry.is_OR()){
-                this.summaryFilter.how = this.summaryFilter.selected_OR.length===0?"MoreResults":"LessResults";
-            }
-            ctgry.set_NONE();
-            if(this.summaryFilter.selected_OR.length===1 && this.summaryFilter.selected_AND.length===0){
-                this.summaryFilter.selected_OR.forEach(function(a){
-                    a.set_NONE();
-                    a.set_AND(this.summaryFilter.selected_AND);
-                },this);
-            }
-            if(!this.summaryFilter.selected_Any()){
-                this.dirtySort = false;
-                this.DOM.catSortButton.attr("resort",false);
-            }
+      if(what==="NONE"){
+        if(ctgry.is_AND() || ctgry.is_NOT()){
+          this.summaryFilter.how = "MoreResults";
         }
-        if(what==="NOT"){
-            if(ctgry.is_NONE()){
-                if(ctgry.recCnt.Active===this.browser.allRecordsAggr.recCnt.Active){
-                    alert("Removing this category will create an empty result list, so it is not allowed.");
-                    return;
-                }
-                this.summaryFilter.how = "LessResults";
-            } else {
-                this.summaryFilter.how = "All";
-            }
-            ctgry.set_NOT(this.summaryFilter.selected_NOT);
+        if(ctgry.is_OR()){
+          this.summaryFilter.how = this.summaryFilter.selected_OR.length===0?"MoreResults":"LessResults";
         }
-        if(what==="AND"){
-            ctgry.set_AND(this.summaryFilter.selected_AND);
-            this.summaryFilter.how = "LessResults";
+        ctgry.set_NONE();
+        if(this.summaryFilter.selected_OR.length===1 && this.summaryFilter.selected_AND.length===0){
+          this.summaryFilter.selected_OR.forEach(function(a){
+            a.set_NONE();
+            a.set_AND(this.summaryFilter.selected_AND);
+          },this);
         }
-        if(what==="OR"){
-            if(!this.isMultiValued && this.summaryFilter.selected_NOT.length>0){
-                var temp = [];
-                this.summaryFilter.selected_NOT.forEach(function(a){ temp.push(a); });
-                temp.forEach(function(a){ a.set_NONE(); });
-            }
-            if(this.summaryFilter.selected_OR.length===0 && this.summaryFilter.selected_AND.length===1){
-                this.summaryFilter.selected_AND.forEach(function(a){
-                    a.set_NONE();
-                    a.set_OR(this.summaryFilter.selected_OR);
-                },this);
-            }
-            ctgry.set_OR(this.summaryFilter.selected_OR);
-            this.summaryFilter.how = "MoreResults";
+        if(!this.summaryFilter.selected_Any()){
+          this.dirtySort = false;
+          this.DOM.catSortButton.attr("resort",false);
         }
-        if(how) this.summaryFilter.how = how;
-
-        if(preTest){
-            this.summaryFilter.how = "All";
-        }
-        if(this.summaryFilter.selected_OR.length>0 && (this.summaryFilter.selected_AND.length>0 ||
-                this.summaryFilter.selected_NOT.length>0)){
-            this.summaryFilter.how = "All";
-        }
-        if(this.missingValueAggr.filtered===true){
-            this.summaryFilter.how = "All";
-        }
-
-        if(this.summaryFilter.selectedCount_Total()===0){
-            this.summaryFilter.clearFilter();
+      }
+      if(what==="NOT"){
+        if(ctgry.is_NONE()){
+          if(ctgry.recCnt.Active===this.browser.allRecordsAggr.recCnt.Active){
+            alert("Removing this category will create an empty result list, so it is not allowed.");
             return;
+          }
+          this.summaryFilter.how = "LessResults";
+        } else {
+          this.summaryFilter.how = "All";
         }
-        this.clearCatTextSearch();
+        ctgry.set_NOT(this.summaryFilter.selected_NOT);
+      }
+      if(what==="AND"){
+        ctgry.set_AND(this.summaryFilter.selected_AND);
+        this.summaryFilter.how = "LessResults";
+      }
+      if(what==="OR"){
+        if(!this.isMultiValued && this.summaryFilter.selected_NOT.length>0){
+          var temp = [];
+          this.summaryFilter.selected_NOT.forEach(function(a){ temp.push(a); });
+          temp.forEach(function(a){ a.set_NONE(); });
+        }
+        if(this.summaryFilter.selected_OR.length===0 && this.summaryFilter.selected_AND.length===1){
+          this.summaryFilter.selected_AND.forEach(function(a){
+            a.set_NONE();
+            a.set_OR(this.summaryFilter.selected_OR);
+          },this);
+        }
+        ctgry.set_OR(this.summaryFilter.selected_OR);
+        this.summaryFilter.how = "MoreResults";
+      }
+      if(how) this.summaryFilter.how = how;
+
+      if(preTest){
+        this.summaryFilter.how = "All";
+      }
+      if(this.summaryFilter.selected_OR.length>0 && (this.summaryFilter.selected_AND.length>0 ||
+          this.summaryFilter.selected_NOT.length>0)){
+        this.summaryFilter.how = "All";
+      }
+      if(this.missingValueAggr.filtered==="in"){
+        this.summaryFilter.how = "All";
+      }
+
+      if(this.summaryFilter.selectedCount_Total()===0){
+        this.summaryFilter.clearFilter();
+        return;
+      }
+      this.clearCatTextSearch();
+      if(this.missingValueAggr.filtered==="in"){
         this.missingValueAggr.filtered = false;
-        this.summaryFilter.addFilter();
+      }
+      this.summaryFilter.addFilter();
     },
 
 
     /** -- */
     onCatClick: function(ctgry){
       if(!this.isCatSelectable(ctgry)) return;
+
+      if(d3.event && d3.event.altKey){
+        this.filterCategory(ctgry,"NOT");
+        return;
+      }
 
       if(d3.event && d3.event.shiftKey){
         this.browser.setSelect_Compare(true);
@@ -8011,12 +9312,14 @@ var Summary_Categorical_functions = {
         d3.select(aggr.DOM.aggrGlyph).classed("showlock",true);
         this.browser.setSelect_Highlight(aggr);
         if(!this.browser.ratioModeActive) {
-          if(this.viewType==='map'){
-            this.DOM.highlightedMeasureValue.style("left",(100*(this.mapColorScale(aggr.measure('Highlight'))/9))+"%");
-          } else {
-            this.DOM.highlightedMeasureValue.style("left",this.chartScale_Measure(aggr.measure('Active'))+"px");
-          }
-          this.DOM.highlightedMeasureValue.style("opacity",1);
+          this.DOM.highlightedMeasureValue
+            .style("opacity",1)
+            .style("transform","translateX("+
+                (this.viewType==='map' 
+                  ? ((100*(this.mapColorScale(aggr.measure('Highlight'))/9))+"%")
+                  : (this.chartScale_Measure(aggr.measure('Active'))+"px"))
+                +")"
+            );
         }
       }
     },
@@ -8098,19 +9401,6 @@ var Summary_Categorical_functions = {
       var DOM_cats_new = aggrGlyphSelection.enter()
         .append(this.viewType=='list' ? 'span' : 'g')
         .attr("class","aggrGlyph "+(this.viewType=='list'?'cat':'map')+"Glyph") // mapGlyph, catGlyph
-        .on("mousemove", function(){
-          if(this.viewType==='map'){
-            var left = (d3.event.pageX-this.tipsy.tipWidth-10);
-            var top  = (d3.event.pageY-this.tipsy.tipHeight/2);
-
-            var browserPos = kshf.browser.DOM.root[0][0].getBoundingClientRect();
-            left = left - browserPos.left;
-            top = top - browserPos.top;
-
-            this.tipsy.jq_tip[0][0].style.left = left+"px";
-            this.tipsy.jq_tip[0][0].style.top = top+"px";
-          }
-        })
         .attr("title",me.catTooltip ? function(_cat){ return me.catTooltip.call(_cat.data); } : null);
 
       this.updateCatIsVisible();
@@ -8118,7 +9408,7 @@ var Summary_Categorical_functions = {
       if(this.viewType==='list'){
         DOM_cats_new
           .style("height",this.heightCat+"px")
-          .each(function(_cat){ kshf.Util.setTransform(this,"translateY(0px)"); })
+          .style("transform","translateY(0px)")
           .on("mouseenter",function(_cat){
             this.setAttribute("mouseOver",true);
             if(me.browser.mouseSpeed<0.2) { 
@@ -8178,7 +9468,8 @@ var Summary_Categorical_functions = {
           DOM_cats_new.append("span").attr("class", "measure_"+m)
             .on("mouseenter" ,function(){ 
               if(m==="Compare_A" || m==="Compare_B" || m==="Compare_C"){
-                me.browser.refreshMeasureLabels(m); 
+                // (if active)
+                if(me.browser.vizActive[m]) me.browser.refreshMeasureLabels(m); 
               } else if(m==="Total" || m==="Active"){
                 // nothing
               } else if(me.browser.measureLabelType==="Highlight"){
@@ -8192,15 +9483,19 @@ var Summary_Categorical_functions = {
         });
         DOM_cats_new.append("span").attr("class", "total_tip");
 
-      } else {
-        // map-view
+      } else if(this.viewType==='map'){
         DOM_cats_new
           .each(function(_cat){
             this.tipsy = new Tipsy(this, {
               gravity: 'e',
               title: function(){ 
-                return "<span class='mapItemName'>"+me.catLabel_Func.call(_cat.data)+"</span>"+
-                  me.browser.getMeasureLabel(_cat)+" "+me.browser.recordName;
+                var str="";
+                str += "<span class='mapItemName'>"+me.catLabel_Func.call(_cat.data)+"</span>";
+                str += me.browser.getMeasureLabel(_cat)+" "+me.browser.getMeasureFuncTypeText_Brief();
+                if(me.browser.measureFunc!=="Count"){
+                  str+="<br>in "+(_cat.recCnt.Active)+" "+me.browser.recordName;
+                }
+                return str;
               }
             });
           })
@@ -8210,12 +9505,12 @@ var Summary_Categorical_functions = {
               var left = (d3.event.pageX-this.tipsy.tipWidth-10);
               var top  = (d3.event.pageY-this.tipsy.tipHeight/2);
 
-              var browserPos = kshf.browser.DOM.root[0][0].getBoundingClientRect();
+              var browserPos = kshf.browser.DOM.root.node().getBoundingClientRect();
               left = left - browserPos.left;
               top = top - browserPos.top;
 
-              this.tipsy.jq_tip[0][0].style.left = left+"px";
-              this.tipsy.jq_tip[0][0].style.top = top+"px";
+              this.tipsy.jq_tip.node().style.left = left+"px";
+              this.tipsy.jq_tip.node().style.top = top+"px";
             }
             if(me.browser.mouseSpeed<0.2) { 
               me.onAggrHighlight(_cat);
@@ -8223,13 +9518,22 @@ var Summary_Categorical_functions = {
               this.highlightTimeout = window.setTimeout( function(){ me.onAggrHighlight(_cat) }, me.browser.mouseSpeed*500);
             }
           })
+          .on("mousemove", function(){
+            var browserPos = kshf.browser.DOM.root.node().getBoundingClientRect();
+            var left = (d3.event.pageX - browserPos.left - this.tipsy.tipWidth-10); // left - browserPos.left;
+            var top = (d3.event.pageY - browserPos.top -this.tipsy.tipHeight/2); // top - browserPos.top;
+
+            this.tipsy.jq_tip.node().style.left = left+"px";
+            this.tipsy.jq_tip.node().style.top = top+"px";
+          })
           .on("mouseleave",function(_cat){ 
             if(this.tipsy) this.tipsy.hide();
             if(this.highlightTimeout) window.clearTimeout(this.highlightTimeout);
             me.onAggrLeave(_cat);
           });
 
-        DOM_cats_new.append("path").attr("class","measure_Active").on("click", function(aggr){ me.onCatClick(aggr); });
+        DOM_cats_new.append("path").attr("class","measure_Active")
+          .on("click", function(aggr){ me.onCatClick(aggr); });
         DOM_cats_new.append("text").attr("class","measureLabel"); // label on top of (after) all the rest
       }
       this.refreshDOMcats();
@@ -8279,7 +9583,7 @@ var Summary_Categorical_functions = {
     /** -- */
     cullAttribs: function(){
       if(this.viewType==='map') return; // no culling on maps, for now.  
-      this.DOM.aggrGlyphs.style({
+      this.DOM.aggrGlyphs.styles({
         visibility: function(_cat){ return _cat.isVisible?"visible":"hidden"; },
         display   : function(_cat){ return _cat.isVisible?"block"  :"none"  ; }} );
       if(this.onCatCull) this.onCatCull.call(this);
@@ -8315,20 +9619,20 @@ var Summary_Categorical_functions = {
       this.refreshScrollDisplayMore(this.firstCatIndexInView+this.catCount_InDisplay);
 
       if(noAnim){
-        this.DOM.aggrGlyphs.each(function(ctgry){
-          this.style.opacity = 1;
-          this.style.visibility = "visible";
-          this.style.display = "block";
-
-          var x = 0;
-          var y = me.heightCat*ctgry.orderIndex;
-          ctgry.posX = x;
-          ctgry.posY = y;
-          kshf.Util.setTransform(this,"translate("+x+"px,"+y+"px)");
-        });
-
+        this.DOM.aggrGlyphs
+          .styles({
+            opacity: 1,
+            visibility: 'visible',
+            display: 'block',
+            transform: function(_cat){
+              var x = 0;
+              var y = me.heightCat * _cat.orderIndex;
+              _cat.posX = x;
+              _cat.posY = y;
+              return "translate("+x+"px,"+y+"px)";
+            }
+          });
         this.cullAttribs();
-
         return;
       }
 
@@ -8337,15 +9641,15 @@ var Summary_Categorical_functions = {
 
       // Disappear animation
       me.DOM.aggrGlyphs
-        .filter(function(ctgry){ return ctgry.isActiveBefore && !ctgry.isActive; })
+        .filter(function(_cat){ return _cat.isActiveBefore && !_cat.isActive; })
         .transition()
           .duration(1)
           .delay(sortDelay)
-          .each("end",function(ctgry){
+          .on("end",function(_cat){
             this.style.opacity = 0;
-            ctgry.posX = xRemoveOffset;
-            ctgry.posY = ctgry.posY;
-            kshf.Util.setTransform(this,"translate("+ctgry.posX+"px,"+ctgry.posY+"px)");
+            _cat.posX = xRemoveOffset;
+            _cat.posY = _cat.posY;
+            this.style.transform = "translate("+_cat.posX+"px,"+_cat.posY+"px)";
           });
 
       // Appear animation (initial position)
@@ -8354,11 +9658,11 @@ var Summary_Categorical_functions = {
         .transition()
           .duration(1)
           .delay(sortDelay)
-          .each("end",function(ctgry){
+          .on("end",function(ctgry){
             this.style.opacity = 0;
             ctgry.posX = xRemoveOffset;
             ctgry.posY = ctgry.posY;
-            kshf.Util.setTransform(this,"translate("+ctgry.posX+"px,"+ctgry.posY+"px)");
+            this.style.transform = "translate("+ctgry.posX+"px,"+ctgry.posY+"px)";
           });
 
       // Sort animation
@@ -8371,7 +9675,7 @@ var Summary_Categorical_functions = {
             var x = ctgry.isActiveBefore ? 0:(me.catCount_InDisplay-5)*perCatDelay; // appear animation is further delayed
             return 100 + sortDelay + x + Math.min(ctgry.orderIndex,me.catCount_InDisplay+2) * perCatDelay; 
           })
-          .each("end",function(ctgry){
+          .on("end",function(ctgry){
             if(ctgry.isVisible || ctgry.isVisibleBefore){
               this.style.visibility = "visible";
               this.style.display = "block";
@@ -8382,7 +9686,7 @@ var Summary_Categorical_functions = {
             this.style.opacity = 1;
             ctgry.posX = 0;
             ctgry.posY = me.heightCat*ctgry.orderIndex;
-            kshf.Util.setTransform(this,"translate("+ctgry.posX+"px,"+ctgry.posY+"px)");
+            this.style.transform = "translate("+ctgry.posX+"px,"+ctgry.posY+"px)";
           });
     },
     /** -- */
@@ -8410,7 +9714,7 @@ var Summary_Categorical_functions = {
       this.DOM.measure_Active.attr("d", function(_cat){
         _cat._d_ = me.catMap.call(_cat.data,_cat);
         if(_cat._d_===undefined) {
-          console.log(_cat.data);
+          this.parentNode.style.display = "none";
           return;
         }
         return me.geoPath(_cat._d_);
@@ -8439,7 +9743,7 @@ var Summary_Categorical_functions = {
         if(!_cat.isActive) return;
         var feature = me.catMap.call(_cat.data,_cat);
         if(typeof feature === 'undefined') return;
-        var b = d3.geo.bounds(feature);
+        var b = d3.geoBounds(feature);
         if(isNaN(b[0][0])) return;
         // Change wrapping
         if(b[0][0]>kshf.map.wrapLongitude) b[0][0]-=360;
@@ -8451,20 +9755,23 @@ var Summary_Categorical_functions = {
       this.mapBounds_Active = new L.latLngBounds(bs);
     },
     /** --  */
-    map_zoomToActive: function(){
+    catMap_zoomToActive: function(){
+      var me=this;
       if(this.asdsds===undefined){ // First time: just fit bounds
         this.asdsds = true;
-        this.leafletAttrMap.fitBounds(this.mapBounds_Active);
+        if(this.sourceDescr.mapInitView){
+          this.leafletAttrMap.setView(
+            L.latLng(this.sourceDescr.mapInitView[0],this.sourceDescr.mapInitView[1]) , 
+            this.sourceDescr.mapInitView[2]);
+          delete this.sourceDescr.mapInitView;
+        } else {
+          this.leafletAttrMap.fitBounds(this.mapBounds_Active);
+          setTimeout(function(){ me.catMap_zoomToActive(); },1000); // need to call again to refresh. Hmmm. TODO
+        }
         return;
       }
 
-      this.leafletAttrMap.flyToBounds(
-        this.mapBounds_Active,
-        { padding: [0,0], 
-          pan: {animate: true, duration: 1.2}, 
-          zoom: {animate: true} 
-        }
-        );
+      this.leafletAttrMap.flyToBounds( this.mapBounds_Active, kshf.map.flyConfig );
     },
     /** -- */
     map_refreshColorScale: function(){
@@ -8484,45 +9791,50 @@ var Summary_Categorical_functions = {
         this.DOM.aggrGroup = this.DOM.aggrGroup_list;
         if(this.heightRow_category_dirty) this.refreshHeight_Category();
         this.refreshDOMcats();
+        this.updateCatCount_Active();
         this.updateCatSorting(0,true,true);
+        this.DOM.measureLabel.style("display",null);
+        this.refreshViz_All();
         return;
       }
-      // 'map'
+      
+      // this.viewType => 'map'
+
+      if(this.setSummary) this.setShowSetMatrix(false);
       // The map view is already initialized
       if(this.leafletAttrMap) {
         this.DOM.aggrGroup = this.DOM.summaryCategorical.select(".catMap_SVG > .aggrGroup");
         this.refreshDOMcats();
 
         this.map_refreshBounds_Active();
-        this.map_zoomToActive();
+        this.catMap_zoomToActive();
         this.map_projectCategories();
         this.refreshViz_Active();
+        this.refreshViz_All();
         return; 
       }
 
-      var zoomInit;
       // See http://leaflet-extras.github.io/leaflet-providers/preview/ for alternative layers
-      this.leafletAttrMap = L.map(this.DOM.catMap_Base[0][0], kshf.map.config )
+      this.leafletAttrMap = L.map(this.DOM.catMap_Base.node(), kshf.map.config )
         .addLayer( new L.TileLayer( kshf.map.tileTemplate, kshf.map.tileConfig ) )
         .on("viewreset",function(){ 
           me.map_projectCategories()
         })
         .on("movestart",function(){
           me.browser.DOM.root.attr("pointerEvents",false);
-          zoomInit = this.getZoom();
+          this._zoomInit_ = this.getZoom();
           me.DOM.catMap_SVG.style("opacity",0.3);
         })
         .on("moveend",function(){
           me.browser.DOM.root.attr("pointerEvents",true);
           me.DOM.catMap_SVG.style("opacity",null);
-          if(zoomInit !== this.getZoom()) me.map_projectCategories();
-        })
-        ;
+          if(this._zoomInit_ !== this.getZoom()) me.map_projectCategories();
+        });
 
       //var width = 500, height = 500;
       //var projection = d3.geo.albersUsa().scale(900).translate([width / 2, height / 2]);
-      this.geoPath = d3.geo.path().projection( 
-        d3.geo.transform({
+      this.geoPath = d3.geoPath().projection( 
+        d3.geoTransform({
           // Use Leaflet to implement a D3 geometric transformation.
           point: function(x, y) {
             if(x>kshf.map.wrapLongitude) x-=360;
@@ -8532,7 +9844,7 @@ var Summary_Categorical_functions = {
         }) 
       );
 
-      this.mapColorQuantize = d3.scale.quantize()
+      this.mapColorQuantize = d3.scaleQuantize()
         .domain([0,9])
         .range(kshf.colorScale.converge);
 
@@ -8554,19 +9866,29 @@ var Summary_Categorical_functions = {
             .attr('stroke-width', 1);
 
       // Add custom controls
-      var DOM_control = d3.select(this.leafletAttrMap.getContainer()).select(".leaflet-control");
 
-      DOM_control.append("a")
-        .attr("class","leaflet-control-viewFit").attr("title",kshf.lang.cur.ZoomToFit)
-        .attr("href","#")
-        .html("<span class='viewFit fa fa-arrows-alt'></span>")
+      var DOM_control = d3.select(this.leafletAttrMap.getContainer()).select(".leaflet-control-container");
+
+      var X = DOM_control.append("div").attr("class","visViewControl");
+
+      X.append("div")
+        .attr("class","visViewControlButton fa fa-plus")
+        .attr("title","Zoom in")
+        .on("click",function(){ me.leafletAttrMap.zoomIn(); });
+      X.append("div")
+        .attr("class","visViewControlButton fa fa-minus")
+        .attr("title","Zoom out")
+        .on("click",function(){ me.leafletAttrMap.zoomOut(); });
+      X.append("div")
+        .attr("class","visViewControlButton viewFit fa fa-arrows-alt")
+        .attr("title",kshf.lang.cur.ZoomToFit)
         .on("dblclick",function(){
           d3.event.preventDefault();
           d3.event.stopPropagation();
         })
         .on("click",function(){
           me.map_refreshBounds_Active();
-          me.map_zoomToActive();
+          me.catMap_zoomToActive();
           d3.event.preventDefault();
           d3.event.stopPropagation();
         });
@@ -8612,7 +9934,7 @@ var Summary_Categorical_functions = {
             gravity: 's', title: function(){
               var _minValue = Math.round(me.mapColorScale.invert(d));
               var _maxValue = Math.round(me.mapColorScale.invert(d+1));
-              return Math.round(_minValue)+" to "+Math.round(_maxValue);
+              return Math.round(_minValue)+" &mdash; "+Math.round(_maxValue);
             }
           });
         })
@@ -8628,7 +9950,7 @@ var Summary_Categorical_functions = {
       
       this.map_refreshColorScale();
       this.map_refreshBounds_Active();
-      this.map_zoomToActive();
+      this.catMap_zoomToActive();
       this.map_projectCategories();
       this.refreshMeasureLabel();
       this.refreshViz_Active();
@@ -8668,7 +9990,7 @@ var Summary_Interval_functions = {
       this.height_recEncoding = 20;  // Record encoding chart height
       this.height_percentile  = 32;  // Percentile chart height
       this.width_barGap       = 2;   // The width between neighboring histgoram bars
-      this.width_measureAxisLabel = 30; // ..
+      this.width_measureAxisLabel = 28; // ..
       this.optimumTickWidth   = 45;
 
       this.hasFloat = false;
@@ -8676,14 +9998,14 @@ var Summary_Interval_functions = {
         base: false,
         maxDateRes: function(){
           //if(this.hour ) return "hour";
-          if(this.day  ) return "day";
-          if(this.month) return "month";
-          if(this.year ) return "year";
+          if(this.day  ) return "Day";
+          if(this.month) return "Month";
+          if(this.year ) return "Year";
         },
         minDateRes: function(){
-          if(this.year ) return "year";
-          if(this.month) return "month";
-          if(this.day  ) return "day";
+          if(this.year ) return "Year";
+          if(this.month) return "Month";
+          if(this.day  ) return "Day";
           //if(this.hour ) return "hour";
         }
       };
@@ -8691,7 +10013,7 @@ var Summary_Interval_functions = {
       this.unitName = undefined; // the text appended to the numeric value (TODO: should not apply to time)
       this.percentileChartVisible = false;
       this.zoomed = false;
-      this.usedForSorting = false;
+      this.encodesRecordsBy = false;
       this.invertColorScale = false;
 
       this.highlightRangeLimits_Active = false;
@@ -8723,13 +10045,16 @@ var Summary_Interval_functions = {
       this.quantile_val = {};
 
       this.timeAxis_XFunc = function(aggr){ 
-        //return me.valueScale(aggr.minV) + me.getWidth_Bin()/2;
         return (me.valueScale(aggr.minV) + me.valueScale(aggr.maxV))/2;
       };
     },
     /** -- */
     isEmpty: function(){
       return this._isEmpty;
+    },
+    /** -- */
+    isWideChart: function(){
+      return this.getWidth()>400;
     },
     /** -- */
     getHeight_Extra: function(){
@@ -8746,13 +10071,13 @@ var Summary_Interval_functions = {
         this.height_hist_topGap+
         this.height_labels+
         this.height_slider+
-        this.height_recEncoding
+        this.height_recEncoding+
         this.height_percentile;
     },
     /** -- */
     getHeight_RecordEncoding: function(){
-      if(this.usedForSorting && this.browser.recordDisplay) {
-        if(this.browser.recordDisplay.displayType==='map' || this.browser.recordDisplay.displayType==='nodelink')
+      if(this.encodesRecordsBy && this.browser.recordDisplay) {
+        if(this.browser.recordDisplay.viewRecAs==='map' || this.browser.recordDisplay.viewRecAs==='nodelink')
           return this.height_recEncoding; 
       }
       return 0;
@@ -8777,12 +10102,14 @@ var Summary_Interval_functions = {
     getWidth_Chart: function(){
       if(!this.inBrowser()) return 30;
       return this.getWidth() - this.width_measureAxisLabel -
-        ( this.getWidth()>400 ? this.width_measureAxisLabel : 11 );
+        ( this.isWideChart() ? this.width_measureAxisLabel : 11 );
     },
     /** -- */
     getWidth_OptimumTick: function(){
       if(!this.inBrowser()) return 10;
-      return this.optimumTickWidth;
+      var v = this.optimumTickWidth;
+      if(this.unitName) v += 10*this.unitName.length;
+      return v;
     },
     /** -- */
     getWidth_Bin: function(){
@@ -8915,7 +10242,7 @@ var Summary_Interval_functions = {
         if(this.timeTyped.month) f = "%b "+f;
         if(this.timeTyped.day) f = "%e " + f;
         if(this.timeTyped.year && !this.timeTyped.month) f = "%Y"; // Full year
-        this.timeTyped.print = d3.time.format.utc(f);
+        this.timeTyped.print = d3.utcFormat(f);
       }
 
       // remove records that map to null / undefined
@@ -8932,7 +10259,7 @@ var Summary_Interval_functions = {
 
       this.updateIntervalRange_Total();
 
-      this.detectScaleType();
+      this.refreshScaleType();
       this.resetFilterRangeToTotal();
 
       this.aggr_initialized = true;
@@ -8943,7 +10270,8 @@ var Summary_Interval_functions = {
     setStepTicks: function(v){
       this.stepTicks = v;
       if(this.stepTicks && !this.zoomed){
-        this.resetFilterRangeToTotal();
+        // Hmm, this was breaking filter setting after zoom in/out. TODO - Check in more detail
+        this.checkFilterRange();
       }
     },
     /** -- */
@@ -8953,9 +10281,8 @@ var Summary_Interval_functions = {
         timeFormatFunc = function(v){ if(v && v!=="") return new Date(1*v,0); };
       } else if(fmt===undefined || fmt===null) {
         return;
-        timeFormatFunc = null;
       } else {
-        timeFormatFunc = d3.time.format(fmt).parse;
+        timeFormatFunc = d3.timeParse(fmt);
       }
       var f=this.summaryFunc;
       this.summaryFunc = function(record){
@@ -8967,7 +10294,7 @@ var Summary_Interval_functions = {
       this.aggr_initialized = false;
     },
     /** -- */
-    detectScaleType: function(){
+    refreshScaleType: function(){
       if(this.isEmpty()) return;
       var me = this;
       this.stepTicks = false;
@@ -8978,7 +10305,6 @@ var Summary_Interval_functions = {
       }
 
       // decide scale type based on the filtered records
-      // NOT TIME!
       var inViewRecords = function(record){
         var v = record._valueCache[me.summaryID];
         if(v>=me.intervalRange.active.min && v<me.intervalRange.getActiveMax()) return v; // value is within filtered range
@@ -9010,81 +10336,7 @@ var Summary_Interval_functions = {
     },
     /** -- */
     createSummaryFilter: function(){
-      var me=this;
-      this.summaryFilter = this.browser.createFilter({
-        summary: this,
-        title: function(){ return me.summaryName; },
-        onClear: function(){
-          if(this.filteredBin){
-            this.filteredBin = undefined;
-          }
-          me.DOM.root.attr("filtered",null);
-          if(me.zoomed){
-            me.setZoomed(false);
-          }
-          me.resetFilterRangeToTotal();
-          me.refreshIntervalSlider();
-          if(me.DOM.missingValueAggr) me.DOM.missingValueAggr.attr("filtered",false);
-        },
-        onFilter: function(){
-          me.DOM.root.attr("filtered",true);
-          var valueID = me.summaryID;
-          if(me.missingValueAggr.filtered){
-            me.records.forEach(function(record){
-              record.setFilterCache(this.filterID, record._valueCache[valueID]===null);
-            },this);
-            return;
-          }
-
-          var i_min = this.active.min;
-          var i_max = this.active.max;
-
-          me.stepRange = false;
-
-          if(me.stepTicks){
-            if(me.scaleType==='time'){
-              // TODO
-            } else {
-              if(i_min+1===i_max) me.stepRange = true;
-            }
-          }
-
-          var isFilteredCb;
-          if(me.isFiltered_min() && me.isFiltered_max()){
-            isFilteredCb = function(v){ return v>=i_min && v<i_max; };
-          } else if(me.isFiltered_min()){
-            isFilteredCb = function(v){ return v>=i_min; };
-          } else {// me.isFiltered_max()
-            isFilteredCb = function(v){ return v<i_max; };
-          }
-
-          // TODO: Optimize: Check if the interval scale is extending/shrinking or completely updated...
-          me.records.forEach(function(record){
-            var v = record._valueCache[valueID];
-            record.setFilterCache(this.filterID, (v!==null)?isFilteredCb(v):false);
-          },this);
-
-          var sign = "plus";
-          if(me.stepTicks) {
-            if(me.scaleType==="time"){
-              if(me.timeTyped.maxDateRes()===me.timeTyped.activeRes.type){
-                sign = me.zoomed ? "minus" : "";
-              } else {
-                sign = "plus";
-              }
-            } else {
-              sign = me.zoomed ? "minus" : "";
-            }
-          }
-
-          me.DOM.zoomControl.attr("sign", sign);
-
-          me.refreshIntervalSlider();
-        },
-        filterView_Detail: function(){
-          return (me.missingValueAggr.filtered) ? kshf.lang.cur.NoData : me.printAggrSelection();
-        },
-      });
+      this.summaryFilter = this.browser.createFilter('interval',this);
     },
     /** -- */
     printAggrSelection: function(aggr){
@@ -9097,7 +10349,7 @@ var Summary_Interval_functions = {
         maxValue = this.summaryFilter.active.max;
       }
       if(this.isTimeStamp()){
-        return "<b>"+this.printWithUnitName(minValue)+"</b> to "+
+        return "<b>"+this.printWithUnitName(minValue)+"</b> &mdash; "+
                "<b>"+this.printWithUnitName(maxValue)+"</b>";
       }
       if(this.stepTicks){
@@ -9211,21 +10463,33 @@ var Summary_Interval_functions = {
       this.resetActiveRangeToTotal();
     },
     /** --- */
-    checkFilterRange: function(){
+    checkFilterRange: function(fixTime){
+      var filterActive = this.summaryFilter.active;
+      if(filterActive===undefined) return;
+      
+      // swap min/max if necessary
+      if(filterActive.min>filterActive.max){
+        var _temp = filterActive.min;
+        filterActive.min = filterActive.max;
+        filterActive.max = _temp;
+      }
+
       if(this.scaleType==='time'){
-        this.summaryFilter.active.min = this.getClosestTick(this.summaryFilter.active.min);
-        this.summaryFilter.active.max = this.getClosestTick(this.summaryFilter.active.max);
+        if(fixTime){
+          filterActive.min = this.getClosestTick(filterActive.min);
+          filterActive.max = this.getClosestTick(filterActive.max);
+        }
         return;
       }
 
       if(this.stepTicks || !this.hasFloat){
-        this.summaryFilter.active.min=Math.floor(this.summaryFilter.active.min);
-        this.summaryFilter.active.max=Math.ceil(this.summaryFilter.active.max);
+        filterActive.min=Math.floor(filterActive.min);
+        filterActive.max=Math.ceil(filterActive.max);
       }
 
       // Make sure the range is within the visible limits:
-      this.summaryFilter.active.min = Math.max(this.summaryFilter.active.min, this.intervalRange.active.min);
-      this.summaryFilter.active.max = Math.min(this.summaryFilter.active.max, this.intervalRange.getActiveMax());
+      filterActive.min = Math.max(filterActive.min, this.intervalRange.active.min);
+      filterActive.max = Math.min(filterActive.max, this.intervalRange.getActiveMax());
     },
     /** -- */
     setScaleType: function(t,force){
@@ -9236,10 +10500,14 @@ var Summary_Interval_functions = {
         this.DOM.root.attr("viewType",this.viewType);
       }
 
-      if(force===false && this.scaleType_forced) return;
+      if(force===false && this.scaleType_locked) return;
+
+      if(this.scaleType===t) return;
 
       this.scaleType = t;
-      if(force) this.scaleType_forced = this.scaleType;
+      if(force) {
+        this.scaleType_locked = this.scaleType;
+      }
       
       if(this.DOM.inited){
         this.DOM.summaryConfig.selectAll(".summaryConfig_ScaleType .configOption").attr("active",false);
@@ -9267,13 +10535,14 @@ var Summary_Interval_functions = {
         }
       }
       this.updateScaleAndBins(true);
-      if(this.usedForSorting) this.browser.recordDisplay.refreshRecordColors();
+      if(this.encodesRecordsBy && this.browser.recordDisplay){
+        this.browser.recordDisplay.changeOfScale();
+      }
     },
     /** -- */
     refreshPercentileChart: function(){
       this.DOM.percentileGroup
-        .style("opacity",this.percentileChartVisible?1:0)
-        .attr("percentileChartVisible",this.percentileChartVisible);
+        .attr("percentileChartVisible",this.percentileChartVisible?true:null);
       if(this.percentileChartVisible){
         this.DOM.percentileGroup.style("height",(this.height_percentile-2)+"px");
       }
@@ -9302,7 +10571,7 @@ var Summary_Interval_functions = {
       this.insertRoot(beforeDOM);
       this.DOM.root
         .attr("summary_type","interval")
-        .attr("usedForSorting",this.usedForSorting)
+        .attr("encodesRecordsBy",this.encodesRecordsBy)
         .attr("viewType",this.viewType);
 
       this.insertHeader();
@@ -9374,7 +10643,7 @@ var Summary_Interval_functions = {
       if(this.scaleType==='time'){
         this.DOM.timeSVG = this.DOM.histogram.append("svg").attr("class","timeSVG")
           .attr("xmlns","http://www.w3.org/2000/svg")
-          .style("margin-left",(this.width_barGap)+"px");
+          .style("margin-left",(this.width_barGap/2)+"px");
 
         var x = this.DOM.timeSVG.append('defs')
           .selectAll("marker")
@@ -9407,7 +10676,8 @@ var Summary_Interval_functions = {
       this.initDOM_RecordMapColor();
       this.initDOM_Percentile();
 
-      this.detectScaleType();
+      this.refreshScaleType();
+      this.insertVizDOM();
 
       this.setCollapsed(this.collapsed);
       this.setUnitName(this.unitName);
@@ -9426,15 +10696,15 @@ var Summary_Interval_functions = {
         this.resetActiveRangeToTotal();
         this.DOM.zoomControl.attr("sign","plus");
       }
-      this.detectScaleType();
+      if(this.scaleType!=='time') this.refreshScaleType(); // linear vs log
       this.updateScaleAndBins();
     },
     /** -- */
     setUnitName: function(v){
       this.unitName = v;
-      if(this.unitName && this.DOM.unitNameInput) this.DOM.unitNameInput[0][0].value = this.unitName;
+      if(this.unitName && this.DOM.unitNameInput) this.DOM.unitNameInput.node().value = this.unitName;
       this.refreshValueTickLabels();
-      if(this.usedForSorting && this.browser.recordDisplay.recordViewSummary){
+      if(this.encodesRecordsBy && this.browser.recordDisplay.recordViewSummary){
         this.browser.recordDisplay.refreshRecordSortLabels();
       }
     },
@@ -9447,7 +10717,10 @@ var Summary_Interval_functions = {
         v = v.toLocaleString();
       }
       if(this.unitName){
-        var s = noDiv ? this.unitName : ("<span class='unitName'>"+this.unitName+"</span>");
+        var s = noDiv ? 
+          this.unitName
+          :
+          ("<span class='unitName'>"+this.unitName+"</span>");
         if(this.unitName==='$' || this.unitName==='€'){
           s = s+v;
           // replace abbrevation G with B
@@ -9460,14 +10733,14 @@ var Summary_Interval_functions = {
       return v;
     },
     /** -- */
-    setAsRecordSorting: function(){
-      this.usedForSorting = true;
-      if(this.DOM.root) this.DOM.root.attr("usedForSorting","true");
+    setEncodesRecordsBy: function(type){
+      this.encodesRecordsBy = type;
+      if(this.DOM.root) this.DOM.root.attr("encodesRecordsBy",this.encodesRecordsBy);
     },
     /** -- */
-    clearAsRecordSorting: function(){
-      this.usedForSorting = false;
-      if(this.DOM.root) this.DOM.root.attr("usedForSorting","false");
+    clearEncodesRecordsBy: function(){
+      this.encodesRecordsBy = false;
+      if(this.DOM.root) this.DOM.root.attr("encodesRecordsBy",null);
     },
     /** -- */
     initDOM_IntervalConfig: function(){
@@ -9483,10 +10756,8 @@ var Summary_Interval_functions = {
         .on("input",function(){
           if(this.timer) clearTimeout(this.timer);
           var x = this;
-          var queryString = x.value.toLowerCase();
-          this.timer = setTimeout( function(){
-            me.setUnitName(queryString);
-          }, 750);
+          var qStr = x.value.toLowerCase();
+          this.timer = setTimeout( function(){ me.setUnitName(qStr); }, 750);
         });;
 
       // Show the linear/log scale transformation only if...
@@ -9626,127 +10897,127 @@ var Summary_Interval_functions = {
 
             // Listing time resolutions, from high-res to low-res
             var timeMult = {
-              'second': 1000,
-              'minute': 1000*60,
-              'hour'  : 1000*60*60,
-              'day'   : 1000*60*60*24,
-              'month' : 1000*60*60*24*30,
-              'year'  : 1000*60*60*24*365,
+              'Second': 1000,
+              'Minute': 1000*60,
+              'Hour'  : 1000*60*60,
+              'Day'   : 1000*60*60*24,
+              'Month' : 1000*60*60*24*30,
+              'Year'  : 1000*60*60*24*365,
             };
 
             var timeRes = [
               {
-                type: 'second',
+                type: 'Second',
                 step: 1,
                 format: '%S'
               },{
-                type: 'second',
+                type: 'Second',
                 step: 5,
                 format: '%S'
               },{
-                type: 'second',
+                type: 'Second',
                 step: 15,
                 format: '%S'
               },{
-                type: 'minute',
+                type: 'Minute',
                 step: 1,
                 format: '%M'
               },{
-                type: 'minute',
+                type: 'Minute',
                 step: 5,
                 format: '%M'
               },{
-                type: 'minute',
+                type: 'Minute',
                 step: 15,
                 format: '%M'
               },{
-                type: 'hour',
+                type: 'Hour',
                 step: 1,
                 format: '%H'
               },{
-                type: 'hour',
+                type: 'Hour',
                 step: 6,
                 format: '%H'
               },{
-                type: 'day',
+                type: 'Day',
                 step: 1,
                 format: '%e'
               },{
-                type: 'day',
+                type: 'Day',
                 step: 4,
                 format: function(v){
                   var suffix = kshf.Util.ordinal_suffix_of(v.getUTCDate());
-                  var first=d3.time.format.utc("%-b")(v);
+                  var first=d3.utcFormat("%-b")(v);
                   return suffix+"<br>"+first;
                 },
                 twoLine: true
               },{
-                type: 'month',
+                type: 'Month',
                 step: 1,
                 format: function(v){
                   var nextTick = timeInterval.offset(v, 1);
-                  var first=d3.time.format.utc("%-b")(v);
+                  var first=d3.utcFormat("%-b")(v);
                   var s=first;
-                  if(first==="Jan") s+="<br><span class='secondLayer'>"+(d3.time.format("%Y")(nextTick))+"</span>";
+                  if(first==="Jan") s+="<br><span class='secondLayer'>"+(d3.utcFormat("%Y")(nextTick))+"</span>";
                   return s;
                 },
                 twoLine: true
               },{
-                type: 'month',
+                type: 'Month',
                 step: 3,
                 format: function(v){
                   var nextTick = timeInterval.offset(v, 3);
-                  var first=d3.time.format.utc("%-b")(v);
+                  var first=d3.utcFormat("%-b")(v);
                   var s=first;
-                  if(first==="Jan") s+="<br><span class='secondLayer'>"+(d3.time.format("%Y")(nextTick))+"</span>";
+                  if(first==="Jan") s+="<br><span class='secondLayer'>"+(d3.utcFormat("%Y")(nextTick))+"</span>";
                   return s;
                 },
                 twoLine: true
               },{
-                type: 'month',
+                type: 'Month',
                 step: 6,
                 format: function(v){
                   var nextTick = timeInterval.offset(v, 6);
-                  var first=d3.time.format.utc("%-b")(v);
+                  var first=d3.utcFormat("%-b")(v);
                   var s=first;
-                  if(first==="Jan") s+="<br>"+(d3.time.format("%Y")(nextTick));
+                  if(first==="Jan") s+="<br>"+(d3.utcFormat("%Y")(nextTick));
                   return s;
                 },
                 twoLine: true
               },{
-                type: 'year',
+                type: 'Year',
                 step: 1,
                 format: "%Y"
               },{
-                type: 'year',
+                type: 'Year',
                 step: 2,
                 format: "%Y"
               },{
-                type: 'year',
+                type: 'Year',
                 step: 3,
                 format: "%Y"
               },{
-                type: 'year',
+                type: 'Year',
                 step: 5,
                 format: "%Y"
               },{
-                type: 'year',
+                type: 'Year',
                 step: 10,
                 format: "%Y"
               },{
-                type: 'year',
+                type: 'Year',
                 step: 25,
                 format: "%Y"
               },{
-                type: 'year',
+                type: 'Year',
                 step: 50,
                 format: "%Y"
               },{
-                type: 'year',
+                type: 'Year',
                 step: 100,
                 format: "%Y"
               },{
-                type: 'year',
+                type: 'Year',
                 step: 500,
                 format: "%Y"
               }
@@ -9756,16 +11027,17 @@ var Summary_Interval_functions = {
               var stopIteration = i===timeRes.length-1 || 
                 timeRange_ms/(timeMult[tRes.type]*tRes.step) < optimalTickCount;
               if(stopIteration){
-                if(tRes.type==="day" && this.timeTyped.maxDateRes()==="month")  stopIteration = false;
-                if(tRes.type==="day" && this.timeTyped.maxDateRes()==="year")   stopIteration = false;
-                if(tRes.type==="month" && this.timeTyped.maxDateRes()==="year") stopIteration = false;
-                if(tRes.type==="hour" && this.timeTyped.maxDateRes()==="day")   stopIteration = false;
+                if(tRes.type==="Day"   && this.timeTyped.maxDateRes()==="Month") stopIteration = false;
+                if(tRes.type==="Day"   && this.timeTyped.maxDateRes()==="Year" ) stopIteration = false;
+                if(tRes.type==="Month" && this.timeTyped.maxDateRes()==="Year" ) stopIteration = false;
+                if(tRes.type==="Hour"  && this.timeTyped.maxDateRes()==="Day"  ) stopIteration = false;
               }
               if(stopIteration){
-                timeInterval = d3.time[tRes.type].utc;
+                // TODO: Fix D3
+                timeInterval = d3['utc'+[tRes.type]];
                 this.timeTyped.activeRes = tRes;
                 if(typeof tRes.format === "string"){
-                  this.intervalTickPrint = d3.time.format.utc(tRes.format);
+                  this.intervalTickPrint = d3.utcFormat(tRes.format);
                 } else {
                   this.intervalTickPrint = tRes.format;
                 }
@@ -9797,20 +11069,24 @@ var Summary_Interval_functions = {
           }
           if(!this.hasFloat)
             ticks = ticks.filter(function(d){return d%1===0;});
-          this.intervalTickPrint = d3.format(".1s");
+
+          var d3Formating = d3.format(floatNumTicks?".2f":".2s");
+          this.intervalTickPrint = function(d){
+            if(!me.hasFloat && d<10) return d;
+            if(!me.hasFloat && Math.abs(ticks[1]-ticks[0])<1000) return d;
+            return d3Formating(d);
+          }
+
         } else {
-          this.valueScale.nice(optimalTickCount);
-          this.valueScale.nice(optimalTickCount);
-          ticks = this.valueScale.ticks(optimalTickCount);
           this.valueScale.nice(optimalTickCount);
           ticks = this.valueScale.ticks(optimalTickCount);
 
           if(!this.hasFloat) ticks = ticks.filter(function(tick){return tick===0||tick%1===0;});
 
-          // Does TICKS have a floating number
-          var ticksFloat = ticks.some(function(tick){ return tick%1!==0; });
+          // Do ticks have a floating number?
+          var floatNumTicks = ticks.some(function(tick){ return tick%1!==0; });
 
-          var d3Formating = d3.format(ticksFloat?".2f":".2s");
+          var d3Formating = d3.format(floatNumTicks?".2f":".2s");
           this.intervalTickPrint = function(d){
             if(!me.hasFloat && d<10) return d;
             if(!me.hasFloat && Math.abs(ticks[1]-ticks[0])<1000) return d;
@@ -9849,9 +11125,9 @@ var Summary_Interval_functions = {
       if(this.isEmpty()) return;
 
       switch(this.scaleType){
-        case 'linear': this.valueScale = d3.scale.linear();      break;
-        case 'log':    this.valueScale = d3.scale.log().base(2); break;
-        case 'time':   this.valueScale = d3.time.scale.utc();    break;
+        case 'linear': this.valueScale = d3.scaleLinear();      break;
+        case 'log':    this.valueScale = d3.scaleLog().base(2); break;
+        case 'time':   this.valueScale = d3.scaleUtc();        break;
       }
 
       var _width_ = this.getWidth_Chart();
@@ -9875,6 +11151,13 @@ var Summary_Interval_functions = {
         if( (ticks[1]===ticks[0]+1) && (ticks[ticks.length-1]===ticks[ticks.length-2]+1)) {
           this.setStepTicks(true);
           ticks = this.getValueTicks( _width_/this.getWidth_OptimumTick() );
+
+          minn = this.intervalRange.active.min;
+          maxx = this.intervalRange.getActiveMax();
+
+          this.valueScale
+            .domain([minn, maxx])
+            .range([0, _width_]);
         }
       }
 
@@ -9898,11 +11181,7 @@ var Summary_Interval_functions = {
         this._aggrs = [];
         // Create _aggrs as kshf.Aggregate
         this.intervalTicks.forEach(function(tick,i){
-          var d = new kshf.Aggregate();
-          d.summary = this;
-          d.init();
-          d.minV = tick;
-          d.maxV = this.intervalTicks[i+1];
+          var d = new kshf.Aggregate_Interval(this, tick, this.intervalTicks[i+1]);
           d.summary = this;
           this._aggrs.push(d);
           me.browser.allAggregates.push(d);
@@ -9937,7 +11216,7 @@ var Summary_Interval_functions = {
           if(existingBinIndex!==null){ record._aggrCache.splice(existingBinIndex,1); }
           // ******************************************************************
 
-          bin.addRecord(record);
+          if(bin) bin.addRecord(record);
         },this);
 
         if(this.stepTicks) this.intervalTicks.pop();
@@ -9957,7 +11236,9 @@ var Summary_Interval_functions = {
         }
 
         this.refreshBins_Translate();
-        this.refreshViz_Scale();
+        setTimeout(function(){
+          me.refreshViz_Scale();
+        }, 10);
 
         this.refreshValueTickPos();
 
@@ -9978,17 +11259,43 @@ var Summary_Interval_functions = {
     /** -- */
     insertVizDOM: function(){
       if(this.scaleType==='time' && this.DOM.root) {
+        var zeroPos = this.chartScale_Measure(0);
+
         // delete existing DOM:
         // TODO: Find  a way to avoid this?
         this.DOM.timeSVG.selectAll('[class^="measure_"]').remove();
 
         this.DOM.measure_Total_Area = this.DOM.timeSVG
-          .append("path").attr("class","measure_Total_Area").datum(this._aggrs);
+          .append("path")
+            .attr("class","measure_Total_Area")
+            .datum(this._aggrs)
+            .attr("d", 
+              d3.area()
+                .curve(d3.curveMonotoneX)
+                .x (this.timeAxis_XFunc)
+                .y0(this.height_hist+2-zeroPos)
+                .y1(this.height_hist+2-zeroPos)
+              );;;
         this.DOM.measure_Active_Area = this.DOM.timeSVG
-          .append("path").attr("class","measure_Active_Area").datum(this._aggrs);
+          .append("path")
+            .attr("class","measure_Active_Area")
+            .datum(this._aggrs)
+            .attr("d", 
+              d3.area()
+                .curve(d3.curveMonotoneX)
+                .x (this.timeAxis_XFunc)
+                .y0(this.height_hist+2-zeroPos)
+                .y1(this.height_hist+2-zeroPos)
+              );;
         this.DOM.lineTrend_ActiveLine = this.DOM.timeSVG.selectAll(".measure_Active_Line")
           .data(this._aggrs, function(d,i){ return i; })
-          .enter().append("line").attr("class","measure_Active_Line").attr("marker-end","url(#kshfLineChartTip_Active)");
+          .enter().append("line")
+            .attr("class","measure_Active_Line")
+            .attr("marker-end","url(#kshfLineChartTip_Active)")
+            .attr("x1",this.timeAxis_XFunc)
+            .attr("x2",this.timeAxis_XFunc)
+            .attr("y1",this.height_hist+3-zeroPos)
+            .attr("y2",this.height_hist+3-zeroPos);
 
         this.DOM.measure_Highlight_Area = this.DOM.timeSVG
           .append("path").attr("class","measure_Highlight_Area").datum(this._aggrs);
@@ -10028,7 +11335,6 @@ var Summary_Interval_functions = {
     /** -- */
     updateValueTicks: function(){
       var me=this;
-      // this.DOM.valueTickGroup.selectAll(".valueTick").data([]).exit().remove(); // remove all existing ticks
 
       // Insert middle-ticks to show that this is log-scale
       var ticks = [];
@@ -10037,7 +11343,7 @@ var Summary_Interval_functions = {
         for(var i=1 ; i < this.intervalTicks.length ; i++){
           var _min = me.valueScale(this.intervalTicks[i-1]);
           var _max = me.valueScale(this.intervalTicks[i]);
-          [1,1,1].forEach(function(){
+          [1,1,1,1].forEach(function(){
             var x = (_min+_max)/2;
             ticks.push( {tickValue: me.valueScale.invert(x), major:false } );
             _min = x;
@@ -10049,14 +11355,15 @@ var Summary_Interval_functions = {
       }
       
       var ddd = this.DOM.valueTickGroup.selectAll(".valueTick").data(ticks,function(d){ return d.tickValue; });
+      ddd.style("opacity",1).classed("major",function(d){ return d.major; });
 
       ddd.exit().style("opacity",0);
 
-      var X = ddd.enter().append("span").attr("class","valueTick");
-      X.append("span").attr("class","line")
+      var X = ddd.enter().append("span").attr("class","valueTick")
+        .style("opacity",1).classed("major",function(d){ return d.major; });
+      X.append("span").attr("class","line");
       X.append("span").attr("class","text");
 
-      ddd.style("opacity",1).classed("major",function(d){ return d.major?true:false; });
       this.DOM.valueTickGroup.selectAll(".valueTick > .text")
         .each(function(d){
           this.bin = null;
@@ -10095,7 +11402,7 @@ var Summary_Interval_functions = {
       aggr.DOM.aggrGlyph.setAttribute("selection","selected");
       if(!this.browser.ratioModeActive){
         this.DOM.highlightedMeasureValue
-          .style("top",(this.height_hist - this.chartScale_Measure(aggr.measure('Active')))+"px")
+          .style("transform","translateY("+(this.height_hist - this.chartScale_Measure(aggr.measure('Active')))+"px)")
           .style("opacity",1);
       }
       this.browser.setSelect_Highlight(aggr);
@@ -10131,6 +11438,10 @@ var Summary_Interval_functions = {
     insertBins: function(){
       var me=this;
 
+      var zeroPos = this.chartScale_Measure(0);
+      var width=this.getWidth_Bin();
+      var offset = (this.stepTicks)? this.width_barGap : 0;
+
       // just remove all aggrGlyphs that existed before.
       this.DOM.histogram_bins.selectAll(".aggrGlyph").data([]).exit().remove();
 
@@ -10163,7 +11474,8 @@ var Summary_Interval_functions = {
         .on("click",function(aggr){ me.onAggrClick(aggr); });
 
       ["Total","Active","Highlight","Compare_A","Compare_B","Compare_C"].forEach(function(m){
-        var X = newBins.append("span").attr("class","measure_"+m);
+        var X = newBins.append("span").attr("class","measure_"+m)
+          .style("transform","translateY("+(me.height_hist-zeroPos)+"px) scale("+width+",0)");
         if(m!=="Total" && m!=="Active" && m!=="Highlight"){
           X.on("mouseenter" ,function(){
             me.browser.refreshMeasureLabels(this.classList[0].substr(8));
@@ -10172,7 +11484,7 @@ var Summary_Interval_functions = {
             me.browser.refreshMeasureLabels("Active");
           });
         }
-      });
+      },this);
 
       newBins.append("span").attr("class","total_tip");
       newBins.append("span").attr("class","lockButton fa")
@@ -10203,9 +11515,7 @@ var Summary_Interval_functions = {
           d3.event.stopPropagation();
         });
 
-      newBins.append("span").attr("class","measureLabel").each(function(bar){
-        kshf.Util.setTransform(this,"translateY("+me.height_hist+"px)");
-      });
+      newBins.append("span").attr("class","measureLabel");
 
       this.DOM.aggrGlyphs      = this.DOM.histogram_bins.selectAll(".aggrGlyph");
       this.DOM.measureLabel    = this.DOM.aggrGlyphs.selectAll(".measureLabel");
@@ -10225,6 +11535,36 @@ var Summary_Interval_functions = {
         });
     },
     /** -- */
+    setRangeFilter: function(_min, _max, useTimer){
+      this.summaryFilter.active.min = _min;
+      this.summaryFilter.active.max = _max;
+
+      this.refreshRangeFilter(useTimer);
+    },
+    /** -- */
+    refreshRangeFilter: function(useTimer){
+      if(useTimer===undefined) useTimer = false;
+      this.checkFilterRange(useTimer);
+      this.refreshIntervalSlider();
+
+      var me=this;
+      var doFilter = function(){
+        if(me.isFiltered_min() || me.isFiltered_max()){
+          me.summaryFilter.filteredBin = undefined;
+          me.summaryFilter.addFilter();
+        } else {
+          me.summaryFilter.clearFilter();
+        }
+        delete me.rangeFilterTimer;
+      }
+      if(useTimer===undefined) {
+        doFilter(this);
+      } else {
+        if(this.rangeFilterTimer) clearTimeout(this.rangeFilterTimer);
+        this.rangeFilterTimer = setTimeout(doFilter,250);
+      }
+    },
+    /** -- */
     initDOM_RecordMapColor: function(){
       var me=this;
 
@@ -10237,7 +11577,7 @@ var Summary_Interval_functions = {
         .on("click", function(){
           me.invertColorScale = !me.invertColorScale;
           me.browser.recordDisplay.refreshRecordColors();
-          me.browser.recordDisplay.map_refreshColorScaleBins();
+          me.browser.recordDisplay.recMap_refreshColorScaleBins();
           me.map_refreshColorScale();
         });
 
@@ -10257,7 +11597,7 @@ var Summary_Interval_functions = {
           this.tipsy = new Tipsy(this, {
             gravity: 's', title: function(){
               return "<b>"+me.intervalTickPrint(this._minValue)+"</b> to "+
-                "<b>"+me.intervalTickPrint(this._maxValue);+"</b>"; }
+                "<b>"+me.intervalTickPrint(this._maxValue)+"</b>"; }
           });
         })
         .on("mouseenter",function(d,i){ 
@@ -10292,6 +11632,33 @@ var Summary_Interval_functions = {
       this.map_refreshColorScale();
     },
     /** -- */
+    dragRange: function(initPos, curPos, initMin, initMax){
+      if(this.scaleType==='log'){
+        var targetDif = curPos-initPos;
+        this.summaryFilter.active.min = this.valueScale.invert(this.valueScale(initMin)+targetDif);
+        this.summaryFilter.active.max = this.valueScale.invert(this.valueScale(initMax)+targetDif);
+      } else if(this.scaleType==='time'){
+        return; // TODO
+      } else if(this.scaleType==='linear'){
+        var targetDif = this.valueScale.invert(curPos) - this.valueScale.invert(initPos);
+        if(!this.hasFloat) targetDif = Math.round(targetDif);
+
+        this.summaryFilter.active.min = initMin + targetDif;
+        this.summaryFilter.active.max = initMax + targetDif;
+
+        // Limit the active filter to expand beyond the current min/max of the view.
+        if(this.summaryFilter.active.min<this.intervalRange.active.min){
+          this.summaryFilter.active.min = this.intervalRange.active.min;
+          this.summaryFilter.active.max = this.intervalRange.active.min + (initMax - initMin);
+        }
+        if(this.summaryFilter.active.max>this.intervalRange.getActiveMax()){
+          this.summaryFilter.active.max = this.intervalRange.getActiveMax();
+          this.summaryFilter.active.min = this.intervalRange.getActiveMax() - (initMax - initMin);
+        }
+      }
+      this.refreshRangeFilter(true);
+    },
+    /** -- */
     initDOM_Slider: function(){
       var me=this;
 
@@ -10316,22 +11683,7 @@ var Summary_Interval_functions = {
           var initPos = me.valueScale.invert(d3.mouse(e)[0]);
           d3.select("body").on("mousemove", function(){
             var targetPos = me.valueScale.invert(d3.mouse(e)[0]);
-            // This sets the filter range based on the first click & current mouse position
-            me.summaryFilter.active.min = d3.min([initPos,targetPos]);
-            me.summaryFilter.active.max = d3.max([initPos,targetPos]);
-
-            me.checkFilterRange();
-            me.refreshIntervalSlider();
-            // wait half second to update
-            if(this.timer) clearTimeout(this.timer);
-            this.timer = setTimeout(function(){
-              if(me.isFiltered_min() || me.isFiltered_max()){
-                me.summaryFilter.filteredBin = undefined;
-                me.summaryFilter.addFilter();
-              } else {
-                me.summaryFilter.clearFilter();
-              }
-            },250);
+            me.setRangeFilter(d3.min([initPos,targetPos]) , d3.max([initPos,targetPos]));
           }).on("mouseup", function(){
             me.browser.DOM.root.attr("adjustWidth",null).attr("pointerEvents",true);;
             d3.select("body").on("mousemove",null).on("mouseup",null);
@@ -10356,50 +11708,10 @@ var Summary_Interval_functions = {
           var e=this.parentNode;
           var initMin = me.summaryFilter.active.min;
           var initMax = me.summaryFilter.active.max;
-          var initRange= initMax - initMin;
           var initPos = d3.mouse(e)[0];
 
           d3.select("body").on("mousemove", function() {
-            if(me.scaleType==='log'){
-              var targetDif = d3.mouse(e)[0]-initPos;
-              me.summaryFilter.active.min = me.valueScale.invert(me.valueScale(initMin)+targetDif);
-              me.summaryFilter.active.max = me.valueScale.invert(me.valueScale(initMax)+targetDif);
-
-            } else if(me.scaleType==='time'){
-              // TODO
-              return;
-
-            } else {
-              var targetPos = me.valueScale.invert(d3.mouse(e)[0]);
-              var targetDif = Math.round(targetPos-me.valueScale.invert(initPos));
-
-              me.summaryFilter.active.min = initMin+targetDif;
-              me.summaryFilter.active.max = initMax+targetDif;
-
-              // Limit the active filter to expand beyond the current min/max of the view.
-              if(me.summaryFilter.active.min<me.intervalRange.active.min){
-                me.summaryFilter.active.min=me.intervalRange.active.min;
-                me.summaryFilter.active.max=me.intervalRange.active.min+initRange;
-              }
-              if(me.summaryFilter.active.max>me.intervalRange.getActiveMax()){
-                me.summaryFilter.active.max=me.intervalRange.getActiveMax();
-                me.summaryFilter.active.min=me.intervalRange.getActiveMax()-initRange;
-              }
-            }
-
-            me.checkFilterRange();
-            me.refreshIntervalSlider();
-
-            // wait half second to update
-            if(this.timer) clearTimeout(this.timer);
-            this.timer = setTimeout(function(){
-              if(me.isFiltered_min() || me.isFiltered_max()){
-                me.summaryFilter.filteredBin = undefined;
-                me.summaryFilter.addFilter();
-              } else{
-                me.summaryFilter.clearFilter();
-              }
-            },200);
+            me.dragRange(initPos, d3.mouse(e)[0], initMin, initMax);
           }).on("mouseup", function(){
             me.browser.DOM.root.attr("adjustWidth",null).attr("pointerEvents",true);;
             d3.select("body").on("mousemove",null).on("mouseup",null);
@@ -10417,6 +11729,33 @@ var Summary_Interval_functions = {
         .on("mouseleave", function(){ if(!this.dragging){ 
           this.tipsy.hide(); this.removeAttribute("dragging");
         } })
+        .on("dblclick", function(d){
+          if(typeof Pikaday === 'undefined') return;
+          if(this.pikaday===undefined){
+            this.pikaday = new Pikaday( {
+              field: this,
+              firstDay: 1,
+              defaultDate: me.summaryFilter.active[d],
+              setDefaultDate: true,
+              minDate: me.intervalRange.total.min,
+              maxDate: me.intervalRange.total.max,
+              onSelect: function(date) {
+                var selectedDate = this.getDate();
+                if(d==='min' && selectedDate < me.summaryFilter.active.min){
+                  if(me.zoomed) me.setZoomed(false);
+                }
+                if(d==='max' && selectedDate > me.summaryFilter.active.max){
+                  if(me.zoomed) me.setZoomed(false);
+                }
+                me.summaryFilter.active[d] = this.getDate();
+                me.refreshRangeFilter();
+              }
+            });
+          } else {
+            this.pikaday.setDate(me.summaryFilter.active[d]);
+          }
+          this.pikaday.show();
+        })
         .on("mousedown", function(d,i){
           this.tipsy.hide();
           if(d3.event.which !== 1) return; // only respond to left-click
@@ -10428,34 +11767,21 @@ var Summary_Interval_functions = {
           mee.dragging = true;
           var e=this.parentNode;
           d3.select("body").on("mousemove", function() {
-            var targetPos = me.valueScale.invert(d3.mouse(e)[0]);
-            me.summaryFilter.active[d] = targetPos;
+            me.summaryFilter.active[d] = me.valueScale.invert(d3.mouse(e)[0]);
             // Swap is min > max
             if(me.summaryFilter.active.min>me.summaryFilter.active.max){
               var t=me.summaryFilter.active.min;
               me.summaryFilter.active.min = me.summaryFilter.active.max;
               me.summaryFilter.active.max = t;
-                if(d==='min') d='max'; else d='min';
+              if(d==='min') d='max'; else d='min'; // swap
             }
-            me.checkFilterRange();
-            me.refreshIntervalSlider();
-            // wait half second to update
-            if(this.timer) clearTimeout(this.timer);
-            this.timer = setTimeout( function(){
-              if(me.isFiltered_min() || me.isFiltered_max()){
-                me.summaryFilter.filteredBin = undefined;
-                me.summaryFilter.addFilter();
-              } else {
-                me.summaryFilter.clearFilter();
-              }
-            },200);
+            me.refreshRangeFilter(true);
           }).on("mouseup", function(){
             mee.dragging = false;
             mee.removeAttribute("dragging");
             me.browser.DOM.root.attr("adjustWidth",null).attr("pointerEvents",true);;
             d3.select("body").style('cursor','auto').on("mousemove",null).on("mouseup",null);
           });
-          d3.event.preventDefault();
           d3.event.stopPropagation();
         });
 
@@ -10472,13 +11798,18 @@ var Summary_Interval_functions = {
       var maxMeasureValue = this.getMaxAggr_All();
       var minMeasureValue = 0;
       if(this.browser.measureFunc!=="Count" && this.browser.measureSummary.intervalRange.org.min<0){
-        minMeasureValue = this.getMinAggr_All();
+        minMeasureValue = Math.min(0, this.getMinAggr_All());
       }
       this.getMinAggr_All();
+      // store previous state
+      this.chartScale_Measure_prev
+        .domain(this.chartScale_Measure.domain())
+        .range (this.chartScale_Measure.range() )
+        .clamp(false);
+      // store previous state
       this.chartScale_Measure
         .domain([minMeasureValue, maxMeasureValue])
-        .range ([0, this.height_hist])
-        ;
+        .range ([0, this.height_hist]);
     },
     /** -- */
     refreshBins_Translate: function(){
@@ -10487,11 +11818,13 @@ var Summary_Interval_functions = {
       if(this.scaleType==="time"){
         this.DOM.aggrGlyphs
           .style("width",function(aggr){ return (me.valueScale(aggr.maxV)-me.valueScale(aggr.minV))+"px"; })
-          .each(function(aggr){ kshf.Util.setTransform(this,"translateX("+(me.valueScale(aggr.minV)+ 1)+"px)"); });;
+          .style("transform",function(aggr){ return "translateX("+(me.valueScale(aggr.minV)+ 1)+"px)"; });
       } else {
         this.DOM.aggrGlyphs
           .style("width",this.getWidth_Bin()+"px")
-          .each(function(aggr){ kshf.Util.setTransform(this,"translateX("+(me.valueScale(aggr.minV)+offset)+"px)"); });
+          .style("transform",function(aggr){ 
+            return "translateX("+(me.valueScale(aggr.minV)+offset)+"px)";
+          });
       }
     },
     /** -- */
@@ -10505,6 +11838,8 @@ var Summary_Interval_functions = {
       var me=this;
       var width=this.getWidth_Bin();
 
+      var ratioMode = this.browser.ratioModeActive;
+
       var zeroPos = this.chartScale_Measure(0);
       var heightTotal = function(aggr){
         if(aggr._measure.Total===0) return -zeroPos;
@@ -10514,19 +11849,23 @@ var Summary_Interval_functions = {
 
       if(this.scaleType==='time'){
         this.DOM.measure_Total_Area
-          .transition().duration(this.browser.noAnim?0:700)
+          .style("opacity",ratioMode?0.5:null)
+          .transition().duration(this.browser.noAnim?0:700).ease(d3.easeCubic)
           .attr("d", 
-            d3.svg.area().interpolate("cardinal")
-              .x(this.timeAxis_XFunc)
-              .y0(me.height_hist-zeroPos)
+            d3.area()
+              .curve(d3.curveMonotoneX)
+              .x (this.timeAxis_XFunc)
+              .y0(this.height_hist - zeroPos)
               .y1(function(aggr){ 
-                return ((aggr._measure.Total===0) ? (me.height_hist+3) : (me.height_hist-heightTotal(aggr)))-zeroPos;
+                return ((aggr._measure.Total===0) ? (me.height_hist-zeroPos) : (me.height_hist-heightTotal(aggr)))-zeroPos;
               }));
           ;
       } else {
-        this.DOM.measure_Total.each(function(aggr){
-          kshf.Util.setTransform(this, "translateY("+(me.height_hist-zeroPos)+"px) scale("+width+","+heightTotal(aggr)+")");
-        });
+        this.DOM.measure_Total
+          .style("opacity",ratioMode?0.5:null)
+          .style("transform",function(aggr){
+            return "translateY("+(me.height_hist-zeroPos)+"px) scale("+width+","+heightTotal(aggr)+")";
+          });
         if(!this.browser.ratioModeActive){
           this.DOM.measureTotalTip
             .style("opacity",function(aggr){ return (aggr.measure('Total')>me.chartScale_Measure.domain()[1])?1:0; })
@@ -10545,7 +11884,7 @@ var Summary_Interval_functions = {
       var zeroPos = this.chartScale_Measure(0);
       var heightActive = function(aggr){
         if(aggr._measure.Active===0) return -zeroPos;
-        if(me.browser.ratioModeActive) return me.height_hist-zeroPos;
+        if(me.browser.ratioModeActive) return zeroPos; //me.height_hist-zeroPos;
         return me.chartScale_Measure(aggr.measure('Active'))-zeroPos;
       };
 
@@ -10556,11 +11895,11 @@ var Summary_Interval_functions = {
 
       // Position the lock button
       this.DOM.lockButton
-        .each(function(aggr){
+        .style("transform",function(aggr){
           var x = heightActive(aggr);
           var translateY = me.height_hist-x-10;
           if(x>0) translateY-=zeroPos; else translateY=zeroPos-8;
-          kshf.Util.setTransform(this,"translateY("+translateY+"px)");
+          return "translateY("+translateY+"px)";
         })
         .attr("inside",function(aggr){
           if(me.browser.ratioModeActive) return "";
@@ -10571,30 +11910,29 @@ var Summary_Interval_functions = {
       if(this.scaleType==='time'){
         var durationTime = this.browser.noAnim ? 0 : 700;
         var yFunc = function(aggr){
-          return ((aggr._measure.Active===0) ? me.height_hist+3 : (me.height_hist-heightActive(aggr)+1))-zeroPos;
+          return ((aggr._measure.Active===0) ? (me.height_hist-zeroPos) : (me.height_hist-heightActive(aggr)))-zeroPos;
         };
         this.DOM.measure_Active_Area
-          .transition().duration(durationTime)
+          .transition().duration(durationTime).ease(d3.easeCubic)
           .attr("d", 
-            d3.svg.area().interpolate("cardinal")
+            d3.area()
+              .curve(d3.curveMonotoneX)
               .x (this.timeAxis_XFunc)
-              .y0(me.height_hist+2-zeroPos)
+              .y0(this.height_hist - zeroPos)
               .y1(yFunc)
             );
 
         this.DOM.lineTrend_ActiveLine.transition().duration(durationTime)
           .attr("x1",this.timeAxis_XFunc)
           .attr("x2",this.timeAxis_XFunc)
-          .attr("y1",me.height_hist+3-zeroPos)
+          .attr("y1",this.height_hist-zeroPos)
           .attr("y2",yFunc);
       }
 
       if(!this.isFiltered() || this.scaleType==='time' || this.stepTicks){
         // No partial rendering
-        this.DOM.measure_Active.each(function(aggr){
-          kshf.Util.setTransform(this, 
-            "translateY("+(me.height_hist-zeroPos)+"px) "+
-            "scale("+width+","+(heightActive(aggr))+")");
+        this.DOM.measure_Active.style("transform",function(aggr){
+          return "translateY("+(me.height_hist-zeroPos)+"px) scale("+width+","+(heightActive(aggr))+")";
         });
       } else {
         // Partial rendering
@@ -10603,7 +11941,7 @@ var Summary_Interval_functions = {
         var filter_max = this.summaryFilter.active.max;
         var minPos = this.valueScale(filter_min);
         var maxPos = this.valueScale(filter_max);
-        this.DOM.measure_Active.each(function(aggr){
+        this.DOM.measure_Active.style("transform",function(aggr){
           var translateX = "";
           var width_self=width;
           var aggr_min = aggr.minV;
@@ -10619,8 +11957,7 @@ var Summary_Interval_functions = {
               width_self -= me.valueScale(aggr_max)-maxPos-me.width_barGap*2;
             }
           }
-          kshf.Util.setTransform(this,
-            "translateY("+me.height_hist+"px) "+translateX+"scale("+width_self+","+heightActive(aggr)+")");
+          return "translateY("+me.height_hist+"px) "+translateX+"scale("+width_self+","+heightActive(aggr)+")";
         });
       }
     },
@@ -10635,7 +11972,8 @@ var Summary_Interval_functions = {
 
       var compId = "Compare_"+cT;
 
-      if(this.percentileChartVisible==="Extended"){
+      // Percentile chart
+      if(this.percentileChartVisible){
         if(this.browser.vizActive[compId]){
           this.DOM.percentileGroup.select(".compared_percentileChart").style("display","block");
           if(this.browser.vizActive[compId]) this.updatePercentiles("Compare_"+cT);
@@ -10646,23 +11984,26 @@ var Summary_Interval_functions = {
 
       var zeroPos = this.chartScale_Measure(0);
       var heightCompare = function(aggr){
-        if(aggr._measure[compId]===0) return -zeroPos;
-        return ratioModeActive 
-          ? aggr.ratioCompareToActive(cT)*me.height_hist - zeroPos 
-          : me.chartScale_Measure(aggr.measure(compId)) - zeroPos;
+        var _h = 0;
+        if(aggr._measure[compId]!==0){
+          _h = ratioModeActive ? aggr.ratioCompareToActive(cT)*me.height_hist
+            : me.chartScale_Measure(aggr.measure(compId));
+        }
+        return _h - zeroPos;
       };
 
-      // Time (line chart) update
+      // Time line update
       if(this.scaleType==='time'){
         var yFunc = function(aggr){
-          return ((aggr._measure[compId]===0) ? (me.height_hist+3) : (me.height_hist-heightCompare(aggr)))-zeroPos;
+          return ((aggr._measure[compId]===0) ? (me.height_hist-zeroPos) : (me.height_hist-heightCompare(aggr)))-zeroPos;
         };
 
         var dTime = 200;
         this.DOM["measure_Compare_Area_"+cT]
           .transition().duration(dTime)
-          .attr("d", d3.svg.area().interpolate("cardinal")
-            .x(this.timeAxis_XFunc)
+          .attr("d", d3.area()
+            .curve(d3.curveMonotoneX)
+            .x (this.timeAxis_XFunc)
             //.y(me.height_hist+2-zeroPos)
             .y(yFunc));
 
@@ -10679,8 +12020,8 @@ var Summary_Interval_functions = {
 
       if(!this.isFiltered() || this.scaleType==='time' || this.stepTicks){
         // No partial rendering
-        this.DOM["measure_Compare_"+cT].each(function(aggr){
-          kshf.Util.setTransform(this, _translateY+_translateX+"scale("+binWidth+","+heightCompare(aggr)+")");
+        this.DOM["measure_Compare_"+cT].style("transform",function(aggr){
+          return _translateY+_translateX+"scale("+binWidth+","+heightCompare(aggr)+")";
         });
       } else {
         // partial rendering
@@ -10688,7 +12029,7 @@ var Summary_Interval_functions = {
         var filter_max = this.summaryFilter.active.max;
         var minPos = this.valueScale(filter_min);
         var maxPos = this.valueScale(filter_max);
-        this.DOM["measure_Compare_"+cT].each(function(aggr){
+        this.DOM["measure_Compare_"+cT].style("transform",function(aggr){
           var translateX = "";
           var width_self=(curGroup*binWidth);
           var aggr_min = aggr.minV;
@@ -10704,7 +12045,7 @@ var Summary_Interval_functions = {
               width_self -= me.valueScale(aggr_max)-maxPos-me.width_barGap*2;
             }
           }
-          kshf.Util.setTransform(this, _translateY+translateX+"scale("+(width_self/2)+","+heightCompare(aggr)+")");
+          return _translateY+translateX+"scale("+(width_self/2)+","+heightCompare(aggr)+")";
         });
       }
     },
@@ -10723,7 +12064,7 @@ var Summary_Interval_functions = {
       if(this.browser.vizActive.Highlight){
         this.updatePercentiles("Highlight");
         this.DOM.highlightedMeasureValue
-          .style("top",( this.height_hist * (1-this.browser.allRecordsAggr.ratioHighlightToTotal() ))+"px")
+          .style("transform","translateY("+( this.height_hist * (1-this.browser.allRecordsAggr.ratioHighlightToTotal() ))+"px)")
           .style("opacity",(this.browser.ratioModeActive?1:0));
       } else {
         // Highlight not active
@@ -10751,26 +12092,33 @@ var Summary_Interval_functions = {
 
       if(this.scaleType==='time'){
         var yFunc = function(aggr){
-          return ((aggr._measure.Highlight===0) ? (me.height_hist+3) : (me.height_hist-getAggrHeight_Preview(aggr)))-zeroPos;
+          return ((aggr._measure.Highlight===0) ? (me.height_hist-zeroPos) : (me.height_hist-getAggrHeight_Preview(aggr)))-zeroPos;
         };
-        var dTime=200;
-        this.DOM.measure_Highlight_Area
-          .transition().duration(dTime)
+        var dTime=250;
+        var x = this.DOM.measure_Highlight_Area
+          .style("opacity",1)
+          .transition().duration(dTime).ease(d3.easeCubic)
           .attr("d", 
-            d3.svg.area().interpolate("cardinal")
+            d3.area()
+              .curve(d3.curveMonotoneX)
               .x(this.timeAxis_XFunc)
-              .y0(me.height_hist+2 - zeroPos)
+              .y0(this.height_hist - zeroPos)
               .y1(yFunc));
-        this.DOM.measure_Highlight_Line.transition().duration(dTime)
-          .attr("y1",me.height_hist+3 - zeroPos)
+        var y = this.DOM.measure_Highlight_Line.transition().duration(dTime)
+          .style("opacity",1)
+          .attr("y1",me.height_hist - zeroPos)
           .attr("y2",yFunc)
           .attr("x1",this.timeAxis_XFunc)
           .attr("x2",this.timeAxis_XFunc);
+        if(!this.browser.vizActive.Highlight){
+          x.transition().style("opacity",0);
+          y.transition().style("opacity",0);
+        }
       } else {
         if(!this.browser.vizActive.Highlight){
-          var xx = (width / (totalC+1));
-          var transform = "translateY("+(this.height_hist-zeroPos)+"px) scale("+xx+",0)";
-          this.DOM.measure_Highlight.each(function(){ kshf.Util.setTransform(this,transform); });
+          this.DOM.measure_Highlight.style("transform",
+            "translateY("+(this.height_hist-zeroPos)+"px) "+
+            "scale("+(width / (totalC+1))+",0)");
           return;
         }
 
@@ -10792,7 +12140,7 @@ var Summary_Interval_functions = {
         var minPos = this.valueScale(range_min);
         var maxPos = this.valueScale(range_max);
 
-        this.DOM.measure_Highlight.each(function(aggr){
+        this.DOM.measure_Highlight.style("transform",function(aggr){
           var _translateX = "";
           var barWidth = width;
           if(aggr._measure.Active>0 && rangeFill){
@@ -10810,10 +12158,9 @@ var Summary_Interval_functions = {
           }
           if(!rangeFill){
             barWidth = barWidth / (totalC+1);
-            //_translateX = "translateX("+barWidth*totalC+"px) ";
           }
           var _scale = "scale("+barWidth+","+getAggrHeight_Preview(aggr)+")";
-          kshf.Util.setTransform(this,_translateY+_translateX+_scale);
+          return _translateY+_translateX+_scale;
         });
 
       }
@@ -10825,12 +12172,15 @@ var Summary_Interval_functions = {
       var me = this;
       var tickValues, maxValue;
       var chartAxis_Measure_TickSkip = me.height_hist/17;
-      var axis_Scale = this.chartScale_Measure;
+      var axis_Scale = d3.scaleLinear()
+        .clamp(false)
+        .domain(this.chartScale_Measure.domain())
+        .range (this.chartScale_Measure.range() );
 
       if(this.browser.ratioModeActive || this.browser.percentModeActive) {
         maxValue = (this.browser.ratioModeActive) ? 100
           : Math.round(100*me.getMaxAggr('Active')/me.browser.allRecordsAggr.measure('Active'));
-        axis_Scale = d3.scale.linear()
+        axis_Scale = d3.scaleLinear()
           .rangeRound([0, this.height_hist])
           .domain([0,maxValue])
           .clamp(true);
@@ -10849,46 +12199,53 @@ var Summary_Interval_functions = {
 
       var tickDoms = this.DOM.chartAxis_Measure_TickGroup.selectAll("span.tick")
         .data(tickValues,function(i){return i;});
+      
       // remove old ones
-      tickDoms.exit().remove();
+      tickDoms.exit().transition().style("opacity",0).transition().remove();
+      
       // add new ones
-      var tickData_new=tickDoms.enter().append("span").attr("class","tick");
+      var tickData_new=tickDoms.enter().append("span").attr("class","tick").style("opacity",0);
 
       tickData_new.append("span").attr("class","line");
       tickData_new.append("span").attr("class","text measureAxis_1");
       tickData_new.append("span").attr("class","text measureAxis_2");
 
-      // Place the doms at the bottom of the histogram, so their position is animated.
-      tickData_new.each(function(){ kshf.Util.setTransform(this,"translateY("+me.height_hist+"px)"); });
+      tickData_new.style("transform",function(d){ 
+        return "translateY("+(me.height_hist-me.chartScale_Measure_prev(d))+"px)";
+      });
 
       this.DOM.chartAxis_Measure_TickGroup.selectAll(".text")
         .html(function(d){ return me.browser.getTickLabel(d); });
 
-      setTimeout(function(){
-        var transformFunc;
-        if(me.browser.ratioModeActive){
+      this.browser.setNoAnim(false);
+
+      var transformFunc;
+      if(me.browser.ratioModeActive){
+        transformFunc=function(d){
+          return "translateY("+ (me.height_hist-d*me.height_hist/100)+"px)";
+        };
+      } else {
+        if(me.browser.percentModeActive){
           transformFunc=function(d){
-            kshf.Util.setTransform(this,"translateY("+ (me.height_hist-d*me.height_hist/100)+"px)");
+            return "translateY("+(me.height_hist-(d/maxValue)*me.height_hist)+"px)";
           };
         } else {
-          if(me.browser.percentModeActive){
-            transformFunc=function(d){
-              kshf.Util.setTransform(this,"translateY("+(me.height_hist-(d/maxValue)*me.height_hist)+"px)");
-            };
-          } else {
-            transformFunc=function(d){
-              kshf.Util.setTransform(this,"translateY("+(me.height_hist-me.chartScale_Measure(d))+"px)");
-            };
-          }
+          transformFunc=function(d){
+            return "translateY("+(me.height_hist - axis_Scale(d))+"px)";
+          };
         }
-        var x = me.browser.noAnim;
-        if(x===false) me.browser.setNoAnim(true);
-        me.DOM.chartAxis_Measure.selectAll(".tick").style("opacity",1).each(transformFunc);
-        if(x===false) me.browser.setNoAnim(false);
+      }
+
+      setTimeout(function(){
+        me.DOM.chartAxis_Measure_TickGroup.selectAll("span.tick")
+          .style("opacity",1)
+          .style("transform",transformFunc);
       });
     },
     /** -- */
     refreshIntervalSlider: function(){
+      if(this.DOM.intervalSlider===undefined) return;
+        
       var minn = this.summaryFilter.active.min;
       var minPos = this.valueScale(minn);
       var maxx = this.summaryFilter.active.max;
@@ -10910,37 +12267,43 @@ var Summary_Interval_functions = {
           // Rendering update slowdown if the above translation is used. Weird...
         });
       this.DOM.intervalSlider.selectAll(".rangeHandle")
-        .each(function(d){ kshf.Util.setTransform(this,"translateX("+((d==="min")?minPos:maxPos)+"px)"); });
+        .style("transform",function(d){ return "translateX("+((d==="min")?minPos:maxPos)+"px)"; });
     },
     /** -- */
     refreshHeight: function(){
+      if(!this.DOM.inited) return;
+      this.DOM.valueTickGroup.style("height",this.height_labels+"px");
+      this.DOM.rangeHandle.styles({
+        height: ( this.height_hist+23)+"px",
+        top:    (-this.height_hist-13)+"px" });
+      this.DOM.highlightRangeLimits.style("height",this.height_hist+"px");
+
       this.DOM.histogram.style("height",(this.height_hist+this.height_hist_topGap)+"px")
       this.DOM.wrapper.style("height",(this.collapsed?"0":this.getHeight_Content())+"px");
       this.DOM.root.style("max-height",(this.getHeight()+1)+"px");
 
-      var labelTranslate ="translateY("+this.height_hist+"px)";
-      if(this.DOM.measureLabel)
-        this.DOM.measureLabel.each(function(bar){ kshf.Util.setTransform(this,labelTranslate); });
-      if(this.DOM.timeSVG)
-        this.DOM.timeSVG.style("height",(this.height_hist+2)+"px");
+      this.refreshBins_Translate();
+
+      this.refreshViz_Scale();
+      this.refreshViz_Highlight();
+      this.refreshViz_Compare_All();
+      this.refreshViz_Axis();
     },
     /** -- */
     refreshWidth: function(){
-      this.detectScaleType();
+      this.refreshScaleType();
       this.updateScaleAndBins();
       if(this.DOM.inited===false) return;
-      var chartWidth = this.getWidth_Chart();
-      var wideChart = this.getWidth()>400;
+      var wideChart = this.isWideChart();
       
       this.DOM.wrapper.attr("showMeasureAxis_2",wideChart?"true":null);
 
-      this.DOM.summaryInterval.style({
+      this.DOM.summaryInterval.styles({
         'width'        : this.getWidth()+"px",
         'padding-left' : this.width_measureAxisLabel+"px",
         'padding-right': ( wideChart ? this.width_measureAxisLabel : 11)+"px" });
       
       this.DOM.summaryName.style("max-width",(this.getWidth()-40)+"px");
-      if(this.DOM.timeSVG) this.DOM.timeSVG.style("width",(chartWidth+2)+"px")
     },
     /** -- */
     setHeight: function(targetHeight){
@@ -10949,21 +12312,6 @@ var Summary_Interval_functions = {
       if(this.height_hist===c) return;
       this.height_hist = c;
       this.updateBarScale2Active();
-
-      if(!this.DOM.inited) return;
-      this.refreshBins_Translate();
-
-      this.refreshViz_Scale();
-      this.refreshViz_Highlight();
-      this.refreshViz_Compare_All();
-      this.refreshViz_Axis();
-      this.refreshHeight();
-
-      this.DOM.valueTickGroup.style("height",this.height_labels+"px");
-      this.DOM.rangeHandle.style({
-        height: ( this.height_hist+23)+"px",
-        top:    (-this.height_hist-13)+"px" });
-      this.DOM.highlightRangeLimits.style("height",this.height_hist+"px");
     },
     /** -- */
     updateAfterFilter: function(){
@@ -10993,7 +12341,7 @@ var Summary_Interval_functions = {
       var me=this;
       var offset = (this.stepTicks && !this.isTimeStamp()) ? this.aggrWidth/2 : 0;
       this.DOM.recordValue
-        .each(function(){ kshf.Util.setTransform(this,"translateX("+(me.valueScale(v)+offset)+"px)"); })
+        .style("transform","translateX("+(me.valueScale(v)+offset)+"px)")
         .style("display","block");
       this.DOM.recordValueText.html( this.printWithUnitName(v) );
     },
@@ -11031,14 +12379,14 @@ var Summary_Interval_functions = {
 
       var percentileChart = this.DOM.percentileGroup.select(".percentileChart_"+distr);
 
-      percentileChart.style({opacity: 1, "margin-left": (this.stepTicks ? ((this.aggrWidth/2)+"px") : null) });
+      percentileChart.styles({opacity: 1, "margin-left": (this.stepTicks ? ((this.aggrWidth/2)+"px") : null) });
       percentileChart.selectAll(".q_pos")
-        .each(function(q){ kshf.Util.setTransform(this,"translateX("+me.valueScale(me.quantile_val[distr+q])+"px)"); });
+        .style("transform",function(q){ return "translateX("+me.valueScale(me.quantile_val[distr+q])+"px)"; });
       percentileChart.selectAll(".quantile.aggrGlyph")
-        .each(function(qb){
+        .style("transform",function(qb){
           var pos_1 = me.valueScale(me.quantile_val[distr+qb[0]]);
           var pos_2 = me.valueScale(me.quantile_val[distr+qb[1]]);
-          kshf.Util.setTransform(this,"translateX("+pos_1+"px) scaleX("+(pos_2-pos_1)+") ");
+          return "translateX("+pos_1+"px) scaleX("+(pos_2-pos_1)+")";
         });
     },
 };
@@ -11062,22 +12410,8 @@ var Summary_Clique_functions = {
     this.pausePanning=false;
     this.gridPan_x=0;
 
-    // Update sorting options of setListSummary (adding relatednesness metric...)
-    this.setListSummary.catSortBy[0].name = this.browser.recordName+" #";
-    this.setListSummary.insertSortingOption({
-      name: "Relatedness",
-      value: function(category){ return -category.MST.index; },
-      prep: function(){ me.updatePerceptualOrder(); }
-    });
-    this.setListSummary.refreshCatSortOptions();
+    this.prepareSetMatrixSorting();
 
-    this.setListSummary.onCatSort = function(){
-      me.refreshWindowSize();
-      me.refreshRow();
-      me.DOM.setPairGroup.attr("animate_position",false);
-      me.refreshSetPair_Position();
-      setTimeout(function(){ me.DOM.setPairGroup.attr("animate_position",true); },1000);
-    };
     this.setListSummary.onCatCull = function(){
       if(me.pausePanning) return;
       me.checkPan();
@@ -11129,12 +12463,12 @@ var Summary_Clique_functions = {
         browser.DOM.root.attr('adjustWidth',true).attr("pointerEvents",false);
         me.DOM.root.attr('noanim',true);
         me.DOM.setPairGroup.attr("animate_position",false);
-        var mouseInit_x = d3.mouse(d3.select("body")[0][0])[0];
+        var mouseInit_x = d3.mouse(d3.select("body").node())[0];
         console.log("mouseInit_x: "+mouseInit_x);
         var initWidth = me.getWidth();
         var myHeight = me.getHeight();
         d3.select("body").on("mousemove", function() {
-          var mouseDif = d3.mouse(d3.select("body")[0][0])[0]-mouseInit_x;
+          var mouseDif = d3.mouse(d3.select("body").node())[0]-mouseInit_x;
           me.noanim = true;
           me.summaryWidth = (me.popupSide==="left") ? initWidth-mouseDif : initWidth+mouseDif;
           me.checkWidth();
@@ -11187,7 +12521,7 @@ var Summary_Clique_functions = {
         var gridPan_x_init = me.gridPan_x;
 
         // scroll the setlist summary too...
-        var scrollDom = me.setListSummary.DOM.aggrGroup[0][0];
+        var scrollDom = me.setListSummary.DOM.aggrGroup.node();
         var initScrollPos = scrollDom.scrollTop;
         var w=me.getWidth();
         var h=me.getHeight();
@@ -11259,6 +12593,25 @@ var Summary_Clique_functions = {
     this.refreshWindowSize();
   },
   /** -- */
+  prepareSetMatrixSorting: function(){
+    var me=this;
+    // Update sorting options of setListSummary (adding relatednesness metric...)
+    this.setListSummary.catSortBy[0].name = "# "+this.browser.recordName;
+    this.setListSummary.insertSortingOption({
+      name: "Relatedness",
+      value: function(category){ return -category.MST.index; },
+      prep: function(){ me.updatePerceptualOrder(); }
+    });
+    this.setListSummary.refreshCatSortOptions();
+    this.setListSummary.onCatSort = function(){
+      me.refreshWindowSize();
+      me.refreshRow();
+      me.DOM.setPairGroup.attr("animate_position",false);
+      me.refreshSetPair_Position();
+      setTimeout(function(){ me.DOM.setPairGroup.attr("animate_position",true); },1000);
+    };
+  },
+  /** -- */
   refreshHeight: function(){
     // TODO: Added just because the browser calls this automatically
   },
@@ -11288,7 +12641,7 @@ var Summary_Clique_functions = {
   },
   /** -- */
   updateWidthFromHeight: function(){
-    this.summaryWidth = this.getHeight()+25;
+    this.summaryWidth = this.getHeight()+80;
     this.checkWidth();
   },
   /** -- */
@@ -11335,7 +12688,7 @@ var Summary_Clique_functions = {
     this.DOM.strengthControl.append("span").attr("class","strengthLabel").text("Strong");
 
     this.DOM.scaleLegend_SVG = this.DOM.summaryControls
-      .append("svg").attr({class: "sizeLegend", xmlns:"http://www.w3.org/2000/svg",})
+      .append("svg").attrs({class: "sizeLegend", xmlns:"http://www.w3.org/2000/svg",})
 
     this.DOM.legendHeader = this.DOM.scaleLegend_SVG.append("text").attr("class","legendHeader").text("#");
     this.DOM.legend_Group = this.DOM.scaleLegend_SVG.append("g");
@@ -11742,15 +13095,11 @@ var Summary_Clique_functions = {
 
       var targetClique = me._setPairs_ID[set_1.id()][set_2.id()];
       if(targetClique===undefined){
-        targetClique = new kshf.Aggregate();
-        targetClique.summary = me.setListSummary;
-        targetClique.init([me._setPairs.length],0);
+        targetClique = new kshf.Aggregate_Set(me.setListSummary, set_1, set_2);
+
         me.browser.allAggregates.push(targetClique);
-        targetClique.set_1 = set_1;
-        targetClique.set_2 = set_2;
         set_1.setPairs.push(targetClique);
         set_2.setPairs.push(targetClique);
-
         me._setPairs.push(targetClique);
         me._setPairs_ID[set_1.id()][set_2.id()] = targetClique;
       }
@@ -11822,13 +13171,13 @@ var Summary_Clique_functions = {
   refreshSetPair_Position: function(){
     var me=this;
     var w=this.getWidth();
-    this.DOM.aggrGlyphs.each(function(setPair){
+    this.DOM.aggrGlyphs.style("transform",function(setPair){
       var i1 = setPair.set_1.orderIndex;
       var i2 = setPair.set_2.orderIndex;
       var left = (Math.min(i1,i2)+0.5)*me.setPairDiameter;
       if(me.popupSide==="left") left = w-left;
       var top  = (Math.max(i1,i2)+0.5)*me.setPairDiameter;
-      kshf.Util.setTransform(this,"translate("+left+"px,"+top+"px)");
+      return "translate("+left+"px,"+top+"px)";
     });
   },
   /** -- */

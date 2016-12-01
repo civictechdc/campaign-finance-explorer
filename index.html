@@ -5,31 +5,29 @@
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <script type="text/javascript" src="./js/jquery-1.11.1.min.js"></script>
-    <script type="text/javascript" src="./js/d3.3.5.5.min.js" charset="utf-8"></script>
+    <script type="text/javascript" src="./js/d3.4.2.6.min.js" charset="utf-8"></script>
     <script type="text/javascript" src="./keshif.js" charset="utf-8"></script>
     <link rel="stylesheet" href="./keshif.css"/ type="text/css">
     <link rel="stylesheet" href="./font-awesome/css/font-awesome.min.css">
-
-    <script type="text/javascript" src="./js/moment.min.js" charset="utf-8"></script>
 
     <script type="text/javascript" src="./helpin/helpin_material.js" charset="utf-8"></script>
     <script type="text/javascript" src="./helpin/helpin.js" charset="utf-8"></script>
     <link rel="stylesheet" href="./helpin/helpin.css" type="text/css">
 
+    <script src="//cdnjs.cloudflare.com/ajax/libs/topojson/1.6.19/topojson.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.0.1/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.0.1/dist/leaflet.js"></script>
+
     <script type="text/javascript">
 
-document.addEventListener('DOMContentLoaded',function(){
-  window.onresize = function(){ kshf.handleResize(); };
-});
-
+var wardRegions = {};
 $(document).ready( function(){
   browser = new kshf.Browser({
-    domID: "#demo_Browser",
+    domID: "#campaignExplorer",
     categoryTextWidth: 300,
+    barChartWidth: 120,
     source: { 
       callback: function(){
-        var browser = this;
-
         // Example call: index.html?14D5:12D6
 
         // if no query is provided, use a sample one
@@ -41,7 +39,7 @@ $(document).ready( function(){
         if(location.search!=="") {
           campaigns = location.search.substr(1,10000).split(":");
         }
-        browser.primaryTableName = "Contributions";
+        this.primaryTableName = "Contributions";
         kshf.dt.Contributions = [];
         var contributionID = 0;
         campaigns.forEach(function(campaign){
@@ -59,21 +57,46 @@ $(document).ready( function(){
             }
           });
         });
-        browser.loadCharts();
+
+        $.ajax({
+          url: 'data/ward-2012.geojson',
+          dataType: 'json',
+          async: false,
+          success: function(topojsonData){
+            topojsonData.features.forEach(function(feature){
+              wardRegions[feature.properties.NAME] = feature.geometry;
+            });
+          }
+        });
+
+        this.loadCharts();
       } },
     onReady: function(){
       this.setMeasureMetric("Sum", this.summaries_by_name.Amount);
+
+      var N = d3.select(".panel.panel_middle").node();
+      N.parentNode.insertBefore(N,N.parentNode.firstChild);
     },
     summaries: [
-      { name: "Campaign", catHeight: 30, 
+      { name: "Campaign", catHeight: 30,
+        panel: 'middle', 
         value: function(){
           return this.candidate.name + " for <i>" + this.raceInfo.raceTypeDetail + "</i>";
         }
       },
-      { name: "Contribution Type", value: "contributionType" },
-      { name: "Contributor Type", value: function(){ return this.contributor.contributorType; } },
-      { name: "Contributor Name", value: function(){ return this.contributor.name; } },
-      { name: "Contributor Warnd", value: function(){ return this.contributor.address.ward; } },
+      { name: "Contribution Type", panel: 'right', value: "contributionType" },
+      { name: "Contributor Type", panel: 'right', value: function(){ return this.contributor.contributorType; } },
+      { name: "Contributor Name", panel: 'right', value: function(){ return this.contributor.name; } },
+      { name: "Contributor Ward", 
+        value: function(){ return this.contributor.address.ward; },
+        catMap: function(){
+          var v = wardRegions[this.id];
+          if(v) return v;
+        },
+        viewAs: 'map',
+        panel: 'middle',
+        mapInitView: [38.89317057287496, -77.01484680175783, 11]
+        },
       /*      { name: "Candidate", value: function(){ return this.candidate.name; } },
       { name: "Race Type", value: function(){ return this.raceInfo.raceType; } },
       { name: "Race Type Detail", value: function(){ return this.raceInfo.raceTypeDetail; } }, */
@@ -92,22 +115,24 @@ $(document).ready( function(){
       }
     }
   });
+
+  window.onresize = function(){ kshf.handleResize(); };
 });
 </script>
 <style id="kshfStyle">
 body{
-  margin: 2px;
+  margin: 0px;
+  padding: 0px;
+  overflow: hidden;
 }
-#demo_Browser{
-  height: 99vh;
-  width: 99vw;
+#campaignExplorer{
+  height: 100vh;
+  width: 100vw;
 }
 .deEmphasize{
   font-weight:100; font-size: 0.8em; color: gray
 }
 </style>
   </head>
-  <body>
-    <div id="demo_Browser"></div>
-  </body>
+  <body><div id="campaignExplorer"></div></body>
 </html>
