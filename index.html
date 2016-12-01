@@ -73,23 +73,29 @@ $(document).ready( function(){
       } },
     onReady: function(){
       this.setMeasureMetric("Sum", this.summaries_by_name.Amount);
+
+      var N = d3.select(".panel.panel_middle").node();
+      N.parentNode.insertBefore(N,N.parentNode.firstChild);
     },
     summaries: [
-      { name: "Campaign", catHeight: 30, 
+      { name: "Campaign", catHeight: 30,
+        panel: 'middle', 
         value: function(){
           return this.candidate.name + " for <i>" + this.raceInfo.raceTypeDetail + "</i>";
         }
       },
-      { name: "Contribution Type", value: "contributionType" },
-      { name: "Contributor Type", value: function(){ return this.contributor.contributorType; } },
-      { name: "Contributor Name", value: function(){ return this.contributor.name; } },
+      { name: "Contribution Type", panel: 'right', value: "contributionType" },
+      { name: "Contributor Type", panel: 'right', value: function(){ return this.contributor.contributorType; } },
+      { name: "Contributor Name", panel: 'right', value: function(){ return this.contributor.name; } },
       { name: "Contributor Ward", 
         value: function(){ return this.contributor.address.ward; },
         catMap: function(){
           var v = wardRegions[this.id];
           if(v) return v;
         },
-        viewAs: 'map'
+        viewAs: 'map',
+        panel: 'middle',
+        mapInitView: [38.89317057287496, -77.01484680175783, 11]
         },
       /*      { name: "Candidate", value: function(){ return this.candidate.name; } },
       { name: "Race Type", value: function(){ return this.raceInfo.raceType; } },
