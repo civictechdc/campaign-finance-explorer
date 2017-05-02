@@ -44,7 +44,7 @@ $(document).ready( function(){
         var contributionID = 0;
         campaigns.forEach(function(campaign){
           $.ajax({
-            url: "http://ec2-52-73-208-76.compute-1.amazonaws.com/dc-campaign-finance/api/contributions/"+campaign,
+            url: "https://campaign-finance.codefordc.org/dc-campaign-finance/api/contributions/"+campaign,
             async: false,
             success: function(data){
               data.forEach(function(contribution){
